@@ -1,3 +1,7 @@
+# GEEWONI Trading System Requirements
+# Python 3.12
+
+# Core
 streamlit==1.38.0
 yfinance==0.2.40
 python-telegram-bot==21.4
@@ -6,3 +10,17 @@ requests==2.31.0
 pandas==2.2.2
 numpy==1.26.4
 openai==1.51.2
+pytz==2024.1
+
+# 🆕 Scheduling & Automation
+apscheduler==3.10.4
+
+# 🆕 News & RSS
+feedparser==6.0.10
+beautifulsoup4==4.12.3
+
+# Optional: News API
+# newsapi-python==0.2.7
+
+# IBKR Integration (coming soon)
+# ib_insync==0.9.86

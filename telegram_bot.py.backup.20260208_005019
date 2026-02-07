@@ -22,15 +22,6 @@ except ImportError:
     SKILLS_ENABLED = False
 
 
-# 🆕 Import SkillsetManager
-try:
-    from skillset_manager import SkillsetManager
-    SKILLS_ENABLED = True
-except ImportError:
-    print("⚠️ skillset_manager not found - Skills disabled")
-    SKILLS_ENABLED = False
-
-
 # READ .env FILE DIRECTLY
 def load_env_file():
     env_file = Path('.env')
@@ -73,17 +64,6 @@ if OPENAI_KEY:
         client = None
 else:
     print("⚠️ OPENAI_KEY not found")
-
-# 🆕 Initialize SkillsetManager
-skills_manager = None
-if SKILLS_ENABLED:
-    try:
-        skills_manager = SkillsetManager("skills")
-        print(skills_manager.get_skills_summary())
-    except Exception as e:
-        print(f"⚠️ Skills 加载失败: {e}")
-        skills_manager = None
-
 
 # 🆕 Initialize SkillsetManager
 skills_manager = None
@@ -411,7 +391,6 @@ def get_extended_stock_data(symbol):
             'volume_ratio': float(volume_ratio),
             'trend': trend,
             'trend_en': 'bullish' if current_price > ema_9 else 'bearish',
-            'trend_en': 'bullish' if current_price > ema_9 else 'bearish',
             'price_change_pct': float(((current_price - hist_data['Close'].iloc[-2]) / hist_data['Close'].iloc[-2]) * 100),
             'last_update': last_update,
             'data_source': 'Yahoo Finance'
@@ -479,28 +458,6 @@ async def ai_brain(update: Update, context):
 - 支撑位: ${data['support']:.2f} | 阻力位: ${data['resistance']:.2f}
 - 成交量比率: {data['volume_ratio']:.2f}x
 """
-            
-            # 🆕 添加技能推荐
-            if skills_manager:
-                recommended_skills = []
-                for sym, data in stock_data.items():
-                    market_condition = {
-                        'trend': data.get('trend_en', 'neutral'),
-                        'rsi': data.get('rsi', 50),
-                        'volume_ratio': data.get('volume_ratio', 1.0),
-                        'volatility': 'normal'
-                    }
-                    skills = skills_manager.match_skill_to_market(market_condition)
-                    recommended_skills.extend(skills)
-                
-                # 去重
-                recommended_skills = list(set(recommended_skills))[:3]
-                if recommended_skills:
-                    stock_data_context += "\n\n📚 推荐策略:\n"
-                    for skill_name in recommended_skills:
-                        skill = skills_manager.get_skill(skill_name)
-                        if skill:
-                            stock_data_context += f"• {skill['name']} ({skill['difficulty']}): {skill['description']}\n"
             
             # 🆕 添加技能推荐
             if skills_manager:
@@ -830,7 +787,7 @@ async def start(update: Update, context):
     ai_status = "🟢 在线" if client else "⚠️ 添加 OPENAI_KEY"
     
     await update.message.reply_text(
-        f"🧠 <b>GEEWONI AI 交易大脑 v7.1 - with Skills</b>\n\n"
+        f"🧠 <b>GEEWONI AI 交易大脑 v7.0</b>\n\n"
         f"💰 本周: ${config['weekly_profit']:,.2f}/{config['weekly_goal']:,} ({progress:.0f}%)\n"
         f"📊 胜率: {win_rate:.1f}% ({wins}/{total})\n"
         f"{ai_status} | 使用: {ai_usage_today}/{daily_limit}\n\n"
@@ -841,8 +798,6 @@ async def start(update: Update, context):
         f"<b>命令:</b>\n"
         f"/stats - 交易统计\n"
         f"/morning - 早盘摘要\n"
-        f"/skills - 查看策略库 🆕\n"  # 新增
-        f"/skill [名称] - 策略详情 🆕\n"  # 新增
         f"/skills - 查看策略库 🆕\n"  # 新增
         f"/skill [名称] - 策略详情 🆕\n"  # 新增
         f"/learn - AI 学习报告 🆕\n"
@@ -902,71 +857,6 @@ async def learn_command(update: Update, context):
     summary = get_ai_insights_summary()
     await update.message.reply_text(summary, parse_mode='HTML')
 
-
-
-async def skills_command(update: Update, context):
-    """显示所有可用策略"""
-    if not skills_manager:
-        await update.message.reply_text("⚠️ Skills 系统未加载")
-        return
-    
-    summary = skills_manager.get_skills_summary()
-    beginner_skills = skills_manager.get_recommended_skills_for_beginner()
-    
-    response = f"{summary}\n\n🎓 <b>初学者推荐:</b>\n"
-    for skill_name in beginner_skills:
-        response += f"• {skill_name}\n"
-    
-    response += "\n💡 使用 /skill [名称] 查看详情"
-    await update.message.reply_text(response, parse_mode='HTML')
-
-async def skill_detail_command(update: Update, context):
-    """显示特定策略详情"""
-    if not skills_manager:
-        await update.message.reply_text("⚠️ Skills 系统未加载")
-        return
-    
-    if not context.args:
-        await update.message.reply_text(
-            "使用方法: /skill [策略名称]\n\n"
-            "例如: /skill EMA Crossover\n\n"
-            "查看所有策略: /skills"
-        )
-        return
-    
-    skill_name = ' '.join(context.args)
-    skill = skills_manager.get_skill(skill_name)
-    
-    if not skill:
-        await update.message.reply_text(f"❌ 找不到策略: {skill_name}\n\n查看所有策略: /skills")
-        return
-    
-    entry_conditions = skill['rules'].get('entry_conditions', [])
-    if isinstance(entry_conditions, list):
-        entry_text = '\n'.join([f"  • {c}" for c in entry_conditions[:3]])
-    else:
-        entry_text = "  见策略详情"
-    
-    response = f"""📖 <b>{skill['name']}</b>
-
-<b>类型:</b> {skill['type']}
-<b>难度:</b> {skill['difficulty']}
-<b>描述:</b> {skill['description']}
-
-<b>📈 入场条件:</b>
-{entry_text}
-
-<b>🛑 止损:</b> {skill['rules'].get('stop_loss', 'N/A')}
-<b>💰 仓位:</b> {skill['rules'].get('position_size', 'N/A')}
-
-<b>📊 表现:</b>
-胜率: {skill['performance']['win_rate']:.1f}%
-交易: {skill['performance']['total_trades']}
-盈亏: ${skill['performance']['total_pnl']:.2f}
-
-<b>💡 注意:</b> {skill.get('notes', 'N/A')}
-"""
-    await update.message.reply_text(response, parse_mode='HTML')
 
 async def skills_command(update: Update, context):
     """显示所有可用策略"""
@@ -1198,8 +1088,6 @@ async def main():
     application.add_handler(CommandHandler("usage", usage_command))
     application.add_handler(CommandHandler("strategies", strategies_command))
     application.add_handler(CommandHandler("learn", learn_command))  # AI Learning
-    application.add_handler(CommandHandler("skills", skills_command))  # 🆕
-    application.add_handler(CommandHandler("skill", skill_detail_command))  # 🆕
     application.add_handler(CommandHandler("skills", skills_command))  # 🆕
     application.add_handler(CommandHandler("skill", skill_detail_command))  # 🆕
     application.add_handler(CommandHandler("positions", positions_command))

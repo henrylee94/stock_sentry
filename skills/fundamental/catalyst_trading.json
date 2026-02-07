@@ -1,0 +1,129 @@
+{
+  "name": "Catalyst Trading",
+  "type": "fundamental",
+  "category": "event_driven",
+  "description": "催化剂交易策略 - 利用重大事件引发的价格波动",
+  "difficulty": "intermediate",
+  "timeframe": ["days", "weeks"],
+  "best_for": ["news_trading", "event_driven"],
+  
+  "catalyst_types": {
+    "product_launches": {
+      "description": "新产品发布",
+      "examples": ["新iPhone发布", "新药获批", "新车型上市"],
+      "entry_timing": "传闻阶段或发布前1-2周",
+      "exit_timing": "发布后1-3天 (利好出尽)",
+      "risk_level": "medium"
+    },
+    "merger_acquisition": {
+      "description": "并购消息",
+      "bullish_for": "被收购方 (通常溢价)",
+      "bearish_for": "收购方 (通常短期承压)",
+      "entry_timing": "传闻阶段 (高风险高回报)",
+      "exit_timing": "交易完成或失败",
+      "risk_level": "high"
+    },
+    "fda_approval": {
+      "description": "FDA 药物批准",
+      "entry_timing": "PDUFA 日期前2-4周",
+      "exit_timing": "批准/拒绝当天",
+      "success_rate": "约50%",
+      "risk_level": "very_high"
+    },
+    "regulatory_changes": {
+      "description": "政策法规变化",
+      "examples": ["利率决议", "行业监管", "贸易政策"],
+      "affected_sectors": "因政策而异",
+      "entry_timing": "消息确认后",
+      "risk_level": "medium"
+    },
+    "analyst_upgrades": {
+      "description": "知名分析师升级评级",
+      "entry_timing": "升级发布当天",
+      "exit_timing": "1-3天内",
+      "risk_level": "low"
+    },
+    "share_buyback": {
+      "description": "公司回购股票",
+      "bullish_signal": "管理层看好公司",
+      "entry_timing": "回购计划宣布后",
+      "exit_timing": "回购完成或价格达到目标",
+      "risk_level": "low"
+    }
+  },
+  
+  "rules": {
+    "entry_conditions": [
+      "催化剂明确且可信",
+      "市场对催化剂反应不充分 (还有上涨空间)",
+      "技术面确认 (价格突破或接近支撑)",
+      "成交量确认 (资金开始关注)",
+      "风险收益比 > 2:1"
+    ],
+    "exit_conditions": [
+      "催化剂兑现 (买传闻卖事实)",
+      "催化剂失败或延期",
+      "价格达到技术目标位",
+      "时间止损: 催化剂后3-5天"
+    ],
+    "position_size": "账户净值的 3-5%",
+    "max_positions": 2,
+    "holding_period": "1-14 days"
+  },
+  
+  "catalyst_research_sources": [
+    "FDA Calendar (药物批准日期)",
+    "Earnings Calendar (财报日期)",
+    "Economic Calendar (经济数据)",
+    "Company Press Releases (公司公告)",
+    "Analyst Reports (分析师报告)",
+    "Twitter/X (即时消息)",
+    "Bloomberg/Reuters (新闻)"
+  ],
+  
+  "risk_management": {
+    "stop_loss": "入场价下方 5-7%",
+    "position_sizing": "根据催化剂确定性调整",
+    "diversification": "不要全部仓位押注单一催化剂",
+    "timing": "不要在催化剂前最后一天进场 (太晚)",
+    "news_verification": "确认消息来源可靠"
+  },
+  
+  "performance": {
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "avg_profit_pct": 0.0,
+    "avg_loss_pct": 0.0,
+    "total_pnl": 0.0,
+    "by_catalyst_type": {
+      "product_launch": {"win_rate": 0.0, "trades": 0},
+      "ma": {"win_rate": 0.0, "trades": 0},
+      "fda": {"win_rate": 0.0, "trades": 0},
+      "regulatory": {"win_rate": 0.0, "trades": 0},
+      "analyst": {"win_rate": 0.0, "trades": 0},
+      "buyback": {"win_rate": 0.0, "trades": 0}
+    }
+  },
+  
+  "learned_optimizations": {
+    "most_profitable_catalysts": [],
+    "best_entry_timing": "",
+    "best_exit_timing": "",
+    "sectors_most_responsive": [],
+    "false_catalyst_patterns": []
+  },
+  
+  "common_mistakes": [
+    "追高: 催化剂后才进场",
+    "持有过久: 利好出尽仍不卖",
+    "假消息: 未验证消息来源",
+    "过度杠杆: 催化剂失败损失惨重"
+  ],
+  
+  "notes": "\"买传闻，卖事实\" 是催化剂交易的核心。即使催化剂是利好，价格也可能在兑现后下跌。需要快进快出。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

@@ -1,0 +1,137 @@
+{
+  "name": "Position Sizing",
+  "type": "risk_management",
+  "category": "capital_allocation",
+  "description": "仓位管理策略 - 科学计算每笔交易的投入金额",
+  "difficulty": "beginner",
+  "importance": "critical",
+  
+  "methods": {
+    "fixed_percentage": {
+      "description": "固定百分比法 - 每笔交易固定账户的 X%",
+      "formula": "仓位 = 账户净值 × 固定百分比",
+      "typical_range": "2-5%",
+      "pros": ["简单易用", "自动调整仓位大小"],
+      "cons": ["不考虑个别交易风险"],
+      "best_for": "初学者"
+    },
+    "risk_based": {
+      "description": "风险百分比法 - 每笔交易风险账户的 X%",
+      "formula": "仓位 = (账户净值 × 风险%) / (入场价 - 止损价)",
+      "typical_risk": "1-2% per trade",
+      "example": {
+        "account": 10000,
+        "risk_percentage": 2,
+        "entry_price": 100,
+        "stop_loss": 95,
+        "calculation": "(10000 × 0.02) / (100 - 95) = 40 shares"
+      },
+      "pros": ["精确控制风险", "适应不同止损距离"],
+      "cons": ["计算复杂"],
+      "best_for": "专业交易者"
+    },
+    "kelly_criterion": {
+      "description": "凯利公式 - 根据胜率和盈亏比优化仓位",
+      "formula": "仓位% = (胜率 × 盈亏比 - 败率) / 盈亏比",
+      "example": {
+        "win_rate": 0.6,
+        "win_loss_ratio": 2,
+        "calculation": "(0.6 × 2 - 0.4) / 2 = 0.4 = 40%",
+        "conservative_use": "使用 1/4 Kelly = 10%"
+      },
+      "pros": ["数学优化", "长期收益最大化"],
+      "cons": ["需要准确的胜率数据", "波动大"],
+      "best_for": "有历史数据的策略",
+      "warning": "全仓 Kelly 太激进，建议用 1/4 或 1/2 Kelly"
+    },
+    "volatility_adjusted": {
+      "description": "波动率调整法 - 根据股票波动调整仓位",
+      "formula": "仓位 = 基础仓位 / (股票ATR / 市场ATR)",
+      "logic": "波动大的股票仓位小，波动小的仓位大",
+      "pros": ["适应不同风险的股票"],
+      "cons": ["计算复杂"],
+      "best_for": "组合管理"
+    }
+  },
+  
+  "rules": {
+    "max_position_size": {
+      "single_stock": "账户净值的 10-15%",
+      "single_sector": "账户净值的 25-30%",
+      "total_exposure": "不超过账户净值的 80-90%"
+    },
+    "correlation_adjustment": {
+      "description": "如果持有多个相关股票，减小总仓位",
+      "example": "持有 NVDA + AMD，总仓位不超过 15% (而非 20%)"
+    },
+    "account_size_scaling": {
+      "small_account_<10k": "每笔 3-5%",
+      "medium_account_10k-50k": "每笔 2-4%",
+      "large_account_>50k": "每笔 1-3%"
+    }
+  },
+  
+  "position_scaling": {
+    "pyramid_up": {
+      "description": "盈利后加仓",
+      "method": "首次 50% → 盈利5%后加 30% → 再盈利5%加 20%",
+      "rule": "只在盈利时加仓，不要平均成本",
+      "stop_loss": "移动到保本或盈利"
+    },
+    "scale_out": {
+      "description": "分批止盈",
+      "method": "目标1卖 50% → 目标2卖 30% → 目标3卖 20%",
+      "benefit": "锁定利润同时保留上涨空间"
+    }
+  },
+  
+  "special_situations": {
+    "high_conviction_trades": {
+      "description": "非常确定的交易",
+      "max_size": "正常仓位的 1.5-2倍",
+      "criteria": ["多重确认", "低风险高回报", "催化剂明确"]
+    },
+    "experimental_strategies": {
+      "description": "测试新策略",
+      "max_size": "正常仓位的 0.5倍",
+      "duration": "至少 20-30 笔交易后再评估"
+    },
+    "low_liquidity_stocks": {
+      "description": "成交量小的股票",
+      "max_size": "日均成交量的 1-2%",
+      "reason": "避免滑点和无法平仓"
+    }
+  },
+  
+  "performance_tracking": {
+    "metrics": [
+      "平均仓位大小",
+      "最大单笔仓位",
+      "总风险敞口",
+      "仓位大小 vs 回报关系"
+    ]
+  },
+  
+  "calculator": {
+    "risk_based_example": {
+      "inputs": {
+        "account_value": 10000,
+        "risk_per_trade": 2,
+        "entry_price": 150,
+        "stop_loss_price": 145
+      },
+      "calculation": {
+        "risk_amount": "10000 × 0.02 = 200",
+        "risk_per_share": "150 - 145 = 5",
+        "shares_to_buy": "200 / 5 = 40 shares",
+        "total_position_value": "40 × 150 = 6000",
+        "position_percentage": "6000 / 10000 = 60%"
+      }
+    }
+  },
+  
+  "notes": "仓位管理比选股更重要。永远不要全仓单一股票。保持灵活性应对市场变化。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

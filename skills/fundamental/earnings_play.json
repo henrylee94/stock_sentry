@@ -1,0 +1,113 @@
+{
+  "name": "Earnings Play",
+  "type": "fundamental",
+  "category": "catalyst_trading",
+  "description": "财报交易策略 - 利用财报发布前后的波动获利",
+  "difficulty": "advanced",
+  "timeframe": ["1day", "pre_post_earnings"],
+  "best_for": ["high_volatility", "catalyst_events"],
+  
+  "strategies": {
+    "pre_earnings_anticipation": {
+      "description": "财报前1-2周买入，预期利好",
+      "entry_conditions": [
+        "公司过去4个季度连续超预期",
+        "行业趋势向好",
+        "分析师调高预期",
+        "期权隐含波动率 (IV) 低于历史平均",
+        "技术面确认: 价格在主要均线上方"
+      ],
+      "exit_conditions": [
+        "财报发布前1天平仓 (避免风险)",
+        "或持有过财报 (如果非常确定)"
+      ],
+      "risk": "high"
+    },
+    "post_earnings_momentum": {
+      "description": "财报后根据结果顺势交易",
+      "entry_conditions": {
+        "bullish": [
+          "财报大幅超预期 (EPS beat > 10%)",
+          "公司上调全年指引",
+          "盘前/盘后涨幅 > 5%",
+          "开盘后确认支撑，不回吐涨幅"
+        ],
+        "bearish": [
+          "财报大幅低于预期",
+          "公司下调指引",
+          "盘前/盘后跌幅 > 5%",
+          "开盘后无买盘支撑"
+        ]
+      },
+      "exit_conditions": [
+        "3-5天内动能消失",
+        "触及下一个技术位",
+        "成交量萎缩"
+      ],
+      "risk": "medium"
+    },
+    "earnings_strangle": {
+      "description": "期权跨式策略 - 双向押注高波动",
+      "entry_conditions": [
+        "隐含波动率相对较低",
+        "预期财报会有大波动 (> 8%)",
+        "财报前2-3天买入"
+      ],
+      "exit_conditions": [
+        "财报发布后立即平仓",
+        "波动达到预期即止盈"
+      ],
+      "risk": "medium",
+      "note": "需要期权交易权限"
+    }
+  },
+  
+  "preparation_checklist": [
+    "查看分析师预期 (EPS, Revenue)",
+    "研究上季度财报和管理层指引",
+    "查看同行业公司财报表现",
+    "分析期权市场隐含的波动预期",
+    "设定明确的止损位"
+  ],
+  
+  "rules": {
+    "position_size": "账户净值的 2-4% (风险较高)",
+    "max_positions": 1,
+    "holding_period": "1-5 days",
+    "risk_management": {
+      "never_hold_full_position_through_earnings": "除非极度确定",
+      "use_options_for_leverage": "控制风险",
+      "always_have_exit_plan": "不论涨跌"
+    }
+  },
+  
+  "performance": {
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "avg_profit_pct": 0.0,
+    "avg_loss_pct": 0.0,
+    "profit_factor": 0.0,
+    "max_drawdown": 0.0,
+    "total_pnl": 0.0,
+    "by_strategy": {
+      "pre_earnings": {"win_rate": 0.0, "trades": 0},
+      "post_earnings": {"win_rate": 0.0, "trades": 0},
+      "strangle": {"win_rate": 0.0, "trades": 0}
+    }
+  },
+  
+  "learned_optimizations": {
+    "best_entry_timing": "2_days_before_earnings",
+    "best_exit_timing": "1_day_before_or_immediate_after",
+    "most_successful_sectors": [],
+    "avoid_sectors": [],
+    "iv_threshold": 30
+  },
+  
+  "notes": "极高风险策略。财报结果不可预测。即使超预期也可能下跌(利好出尽)。建议只用小仓位。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

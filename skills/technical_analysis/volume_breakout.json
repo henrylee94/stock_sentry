@@ -1,0 +1,87 @@
+{
+  "name": "Volume Breakout",
+  "type": "technical",
+  "category": "momentum",
+  "description": "成交量突破策略 - 放量突破关键价位时入场",
+  "difficulty": "beginner",
+  "timeframe": ["5min", "15min", "30min"],
+  "best_for": ["breakout_trading", "news_catalyst"],
+  
+  "rules": {
+    "entry_conditions": [
+      "价格突破阻力位或前高",
+      "成交量 > 2倍 20日平均成交量",
+      "突破后价格站稳在阻力位上方",
+      "RSI > 50 (动能确认)",
+      "EMA9 向上且在价格下方",
+      "回踩确认: 突破后回踩不破阻力位"
+    ],
+    "exit_conditions": [
+      "成交量大幅萎缩 (< 0.5倍平均)",
+      "价格跌破突破位",
+      "达到目标位",
+      "时间止损: 持仓超过2小时无进展"
+    ],
+    "stop_loss": {
+      "type": "breakout_based",
+      "value": "突破位下方 1.5-2%",
+      "adjustment": "突破后首个回调低点"
+    },
+    "take_profit": {
+      "target_1": "突破位 + 突破幅度的100%",
+      "target_2": "下一个阻力位",
+      "partial_exit": "目标1处减仓50%"
+    },
+    "position_size": "账户净值的 4-6%",
+    "max_positions": 2
+  },
+  
+  "parameters": {
+    "volume_multiplier": 2.0,
+    "volume_avg_period": 20,
+    "breakout_confirmation_bars": 2,
+    "min_breakout_percentage": 0.5,
+    "max_distance_from_breakout": 1.0,
+    "rsi_threshold": 50
+  },
+  
+  "performance": {
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "avg_profit_pct": 0.0,
+    "avg_loss_pct": 0.0,
+    "profit_factor": 0.0,
+    "sharpe_ratio": 0.0,
+    "max_drawdown": 0.0,
+    "total_pnl": 0.0
+  },
+  
+  "learned_optimizations": {
+    "best_volume_multiplier": 2.5,
+    "optimal_entry_timing": "breakout_bar_close",
+    "best_timeframe": "15min",
+    "best_market_conditions": "trending_with_catalyst",
+    "false_breakout_filter": "wait_for_retest",
+    "best_time_of_day": "market_open_first_hour"
+  },
+  
+  "filters": {
+    "avoid_conditions": [
+      "市场开盘前5分钟 (波动太大)",
+      "重要经济数据发布前后30分钟",
+      "周五收盘前1小时"
+    ],
+    "ideal_conditions": [
+      "有新闻催化剂",
+      "市场整体强势",
+      "板块轮动明确"
+    ]
+  },
+  
+  "notes": "最适合有催化剂的突破。假突破很常见，需要成交量和价格双重确认。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

@@ -1,0 +1,73 @@
+{
+  "name": "EMA Crossover",
+  "type": "technical",
+  "category": "trend_following",
+  "description": "EMA 9/21 交叉策略 - 利用短期和中期均线交叉判断趋势",
+  "difficulty": "beginner",
+  "timeframe": ["5min", "15min", "1hour"],
+  "best_for": ["trending_markets", "high_volume_stocks"],
+  
+  "rules": {
+    "entry_conditions": [
+      "EMA9 向上穿越 EMA21 (金叉)",
+      "价格在 EMA9 之上",
+      "RSI 在 40-70 之间 (避免超买)",
+      "成交量 > 1.5倍 20日平均 (确认突破)",
+      "价格距离 EMA9 < 2% (避免追高)"
+    ],
+    "exit_conditions": [
+      "EMA9 向下穿越 EMA21 (死叉)",
+      "达到阻力位",
+      "RSI > 75 (严重超买)",
+      "止损触发"
+    ],
+    "stop_loss": {
+      "type": "dynamic",
+      "value": "EMA21 下方 2%",
+      "trailing": "使用 EMA9 作为移动止损"
+    },
+    "take_profit": {
+      "type": "resistance_based",
+      "target": "最近阻力位",
+      "risk_reward_ratio": 2.0
+    },
+    "position_size": "账户净值的 3-5%",
+    "max_positions": 3
+  },
+  
+  "parameters": {
+    "ema_fast": 9,
+    "ema_slow": 21,
+    "rsi_period": 14,
+    "rsi_min": 40,
+    "rsi_max": 70,
+    "volume_ratio": 1.5,
+    "max_distance_from_ema": 0.02
+  },
+  
+  "performance": {
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "avg_profit_pct": 0.0,
+    "avg_loss_pct": 0.0,
+    "profit_factor": 0.0,
+    "sharpe_ratio": 0.0,
+    "max_drawdown": 0.0,
+    "total_pnl": 0.0
+  },
+  
+  "learned_optimizations": {
+    "best_rsi_range": [45, 65],
+    "best_volume_ratio": 2.1,
+    "optimal_timeframe": "15min",
+    "best_market_conditions": "trending_up",
+    "avoid_conditions": ["sideways", "high_volatility"]
+  },
+  
+  "notes": "最适合趋势明确的市场。避免在盘整时使用。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

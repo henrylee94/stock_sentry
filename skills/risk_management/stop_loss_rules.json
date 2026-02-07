@@ -1,0 +1,182 @@
+{
+  "name": "Stop Loss Rules",
+  "type": "risk_management",
+  "category": "loss_prevention",
+  "description": "止损规则 - 保护资本，限制单笔损失",
+  "difficulty": "beginner",
+  "importance": "critical",
+  
+  "stop_loss_types": {
+    "percentage_based": {
+      "description": "百分比止损 - 固定百分比",
+      "typical_values": {
+        "day_trading": "1-2%",
+        "swing_trading": "3-5%",
+        "position_trading": "7-10%"
+      },
+      "calculation": "止损价 = 入场价 × (1 - 止损%)",
+      "pros": ["简单直接", "容易执行"],
+      "cons": ["不考虑技术位"],
+      "example": "入场 $100，3% 止损 = $97"
+    },
+    "technical_based": {
+      "description": "技术止损 - 基于支撑/阻力",
+      "methods": {
+        "support_level": "支撑位下方 0.5-1%",
+        "ema_based": "关键均线下方 1-2%",
+        "swing_low": "最近低点下方",
+        "atr_based": "入场价 - (2 × ATR)"
+      },
+      "pros": ["尊重市场结构", "减少假突破止损"],
+      "cons": ["止损距离不固定"],
+      "best_for": "技术交易者"
+    },
+    "time_based": {
+      "description": "时间止损 - 超时未盈利则退出",
+      "scenarios": [
+        "日内交易: 持仓 2-3 小时无进展",
+        "突破交易: 突破后 30 分钟未确认",
+        "催化剂交易: 事件后 2-3 天"
+      ],
+      "purpose": "释放资金，寻找更好机会"
+    },
+    "trailing_stop": {
+      "description": "移动止损 - 跟随价格上涨",
+      "methods": {
+        "percentage_trailing": "最高点下方固定%",
+        "ema_trailing": "跟随均线",
+        "chandelier_stop": "最高点 - (ATR × 倍数)"
+      },
+      "when_to_use": "已盈利的交易",
+      "example": "入场 $100，涨到 $110，3% trailing = $106.7"
+    }
+  },
+  
+  "stop_loss_placement_rules": {
+    "never_place_stops_at": [
+      "整数价位 (如 $100, $150) - 容易被猎杀",
+      "明显的技术位 - 太多人设置",
+      "太近 - 正常波动就触发",
+      "太远 - 损失太大"
+    ],
+    "best_placement": [
+      "技术位下方 0.5-1% (给缓冲)",
+      "前低点下方",
+      "成交密集区下方"
+    ]
+  },
+  
+  "stop_loss_execution": {
+    "order_types": {
+      "stop_market": {
+        "description": "到价立即市价卖出",
+        "pros": ["保证成交"],
+        "cons": ["可能滑点"],
+        "use_when": "流动性好的股票"
+      },
+      "stop_limit": {
+        "description": "到价后限价卖出",
+        "pros": ["控制价格"],
+        "cons": ["可能不成交"],
+        "use_when": "波动小的股票",
+        "setting": "止损价 - 0.5% 作为限价"
+      }
+    },
+    "mental_vs_hard_stop": {
+      "hard_stop": {
+        "description": "设置在broker",
+        "pros": ["自动执行", "不受情绪影响"],
+        "cons": ["可能被猎杀"],
+        "recommended": true
+      },
+      "mental_stop": {
+        "description": "心理止损价位",
+        "pros": ["灵活", "避免被猎杀"],
+        "cons": ["依赖纪律", "容易违反"],
+        "recommended": false
+      }
+    }
+  },
+  
+  "advanced_techniques": {
+    "break_even_stop": {
+      "description": "盈利后移动止损到成本价",
+      "timing": "盈利达到 1R (R = 风险)",
+      "benefit": "确保不亏损"
+    },
+    "profit_lock": {
+      "description": "锁定部分利润",
+      "timing": "盈利达到 2R",
+      "method": "止损移到 1R 盈利位"
+    },
+    "news_stop": {
+      "description": "重大新闻前收紧止损",
+      "reason": "避免意外波动",
+      "method": "缩小到 1-2%"
+    }
+  },
+  
+  "common_mistakes": {
+    "moving_stops_wider": {
+      "description": "亏损后扩大止损",
+      "why_bad": "将小亏变大亏",
+      "solution": "遵守原始止损"
+    },
+    "no_stop_at_all": {
+      "description": "不设止损",
+      "why_bad": "单笔巨亏毁掉账户",
+      "solution": "永远设置止损"
+    },
+    "stops_too_tight": {
+      "description": "止损太近",
+      "why_bad": "正常波动就止损",
+      "solution": "给价格呼吸空间"
+    },
+    "removing_stops": {
+      "description": "价格接近时删除止损",
+      "why_bad": "失控亏损",
+      "solution": "止损神圣不可侵犯"
+    }
+  },
+  
+  "rules": {
+    "golden_rules": [
+      "永远设置止损",
+      "止损设置后不要移宽",
+      "可以收紧止损，不能放宽",
+      "止损触发立即执行，不要犹豫",
+      "止损不是失败，是风险管理"
+    ],
+    "max_loss_limits": {
+      "per_trade": "账户净值的 1-2%",
+      "per_day": "账户净值的 3-5%",
+      "per_week": "账户净值的 7-10%",
+      "per_month": "账户净值的 15-20%"
+    },
+    "stop_and_reverse": {
+      "description": "连续止损后暂停交易",
+      "trigger": "一天内 3 次止损",
+      "action": "当天停止交易，复盘问题"
+    }
+  },
+  
+  "psychology": {
+    "accepting_losses": "止损是交易成本，不是失败",
+    "letting_winners_run": "不要过早止盈，让移动止损保护利润",
+    "emotional_discipline": "价格到达止损位 = 交易假设失效 = 必须退出"
+  },
+  
+  "performance_metrics": {
+    "track": [
+      "止损被触发次数",
+      "止损被触发后股价走势 (验证止损是否合理)",
+      "平均止损幅度",
+      "最大单笔亏损"
+    ]
+  },
+  
+  "notes": "止损是交易者最重要的工具。没有止损的交易者终将爆仓。小亏是智慧，大亏是灾难。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

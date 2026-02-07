@@ -1,0 +1,211 @@
+{
+  "name": "Mean Reversion",
+  "type": "market_conditions",
+  "category": "counter_trend",
+  "description": "均值回归策略 - 价格偏离均值后会回归",
+  "difficulty": "intermediate",
+  "timeframe": ["5min", "15min", "30min", "1hour"],
+  "best_for": ["range_bound_markets", "oversold_bounce"],
+  "philosophy": "价格不会永远偏离平均值，过度偏离后会回归",
+  
+  "mean_reversion_identification": {
+    "bollinger_bands": {
+      "description": "布林带策略",
+      "oversold_signal": "价格触及下轨",
+      "overbought_signal": "价格触及上轨",
+      "mean": "中轨 (20日SMA)",
+      "settings": "20 period, 2 standard deviations",
+      "entry": "价格触及外轨后反弹",
+      "exit": "价格回到中轨"
+    },
+    "rsi_extremes": {
+      "description": "RSI 极值",
+      "oversold": "RSI < 30",
+      "extremely_oversold": "RSI < 20",
+      "overbought": "RSI > 70",
+      "extremely_overbought": "RSI > 80",
+      "divergence_bonus": "价格新低但RSI未新低 = 强烈反弹信号"
+    },
+    "distance_from_moving_average": {
+      "description": "距离均线的偏离度",
+      "measurement": "(价格 - EMA) / EMA",
+      "oversold_threshold": "< -5%",
+      "overbought_threshold": "> +5%",
+      "extreme_oversold": "< -10%"
+    }
+  },
+  
+  "entry_rules": {
+    "long_entry_oversold": {
+      "conditions": [
+        "价格触及布林带下轨 或 RSI < 30",
+        "在已知支撑位附近",
+        "出现反弹K线 (锤子线、吞没)",
+        "成交量放大 (买盘进场)",
+        "大趋势不是强烈下跌 (避免接飞刀)"
+      ],
+      "confirmation": "价格收盘回到布林带内",
+      "entry_price": "确认K线高点突破",
+      "stop_loss": "支撑位下方 1-2%",
+      "target": "布林带中轨 或 支撑/阻力中点"
+    },
+    "short_entry_overbought": {
+      "conditions": [
+        "价格触及布林带上轨 或 RSI > 70",
+        "在已知阻力位附近",
+        "出现反转K线 (流星线、乌云盖顶)",
+        "成交量萎缩 (买盘减弱)",
+        "大趋势不是强烈上涨"
+      ],
+      "entry_price": "确认K线低点突破",
+      "stop_loss": "阻力位上方 1-2%",
+      "target": "布林带中轨"
+    }
+  },
+  
+  "market_conditions": {
+    "best_conditions": {
+      "market_type": "震荡市、区间市",
+      "volatility": "适中 (VIX 15-25)",
+      "trend": "无明显趋势或弱趋势",
+      "range_size": "3-8% 的波动区间"
+    },
+    "avoid_conditions": {
+      "strong_trend": "ADX > 30 的趋势市",
+      "low_volatility": "VIX < 12 (波动太小)",
+      "high_volatility": "VIX > 35 (风险太大)",
+      "news_driven": "重大新闻前后"
+    }
+  },
+  
+  "exit_rules": {
+    "profit_targets": [
+      "价格回到均值 (布林带中轨)",
+      "达到区间另一端",
+      "盈利 2-3%",
+      "RSI 回到 50"
+    ],
+    "stop_loss_triggers": [
+      "跌破/突破支撑/阻力位",
+      "时间止损: 2-4 小时未回归",
+      "亏损达到 2-3%",
+      "出现趋势加速信号 (不会回归)"
+    ],
+    "scaling_out": {
+      "first_target": "50% at middle of range",
+      "second_target": "30% at opposite band",
+      "final": "20% trail with tight stop"
+    }
+  },
+  
+  "filters_and_confirmations": {
+    "volume_confirmation": {
+      "oversold_bounce": "成交量放大 = 买盘进场",
+      "overbought_reversal": "成交量萎缩 = 买盘枯竭"
+    },
+    "candlestick_patterns": {
+      "bullish": ["锤子线", "看涨吞没", "晨星"],
+      "bearish": ["流星线", "看跌吞没", "黄昏星"]
+    },
+    "support_resistance": {
+      "requirement": "必须在明确的支撑/阻力附近",
+      "reason": "增加反弹/反转概率"
+    },
+    "multiple_timeframe": {
+      "method": "大周期确认区间，小周期找入场",
+      "example": "1小时图确认区间 → 5分钟图等极值 → 入场"
+    }
+  },
+  
+  "advanced_techniques": {
+    "fade_the_move": {
+      "description": "逆势交易强烈单边走势",
+      "when": "价格快速偏离均值 > 8-10%",
+      "caution": "非常危险，需要严格止损",
+      "position_size": "正常的 50%"
+    },
+    "range_expansion_breakout": {
+      "description": "布林带突然扩张 = 趋势开始",
+      "action": "停止均值回归，转为趋势跟随",
+      "signal": "价格强势突破上/下轨且不回头"
+    },
+    "bollinger_band_squeeze": {
+      "description": "布林带收窄 = 波动将至",
+      "setup": "带宽 < 6% (历史低位)",
+      "strategy": "等待突破后顺势交易",
+      "note": "不要在收窄期间交易"
+    }
+  },
+  
+  "rules": {
+    "golden_rules": [
+      "只在震荡市使用，趋势市禁止",
+      "不要接飞刀 (强势下跌不抄底)",
+      "不要摸顶 (强势上涨不做空)",
+      "必须等待确认，不要预测顶底",
+      "快进快出，不要恋战",
+      "严格止损，错了立即认输"
+    ],
+    "position_sizing": {
+      "normal": "3-5% of account",
+      "high_confidence": "5-7%",
+      "extreme_conditions": "2-3%"
+    },
+    "win_rate_vs_profit": {
+      "expected_win_rate": "60-70%",
+      "expected_avg_win": "2-4%",
+      "expected_avg_loss": "2-3%",
+      "profit_factor_target": "> 1.5"
+    }
+  },
+  
+  "common_mistakes": {
+    "fighting_strong_trends": {
+      "description": "在强趋势中抄底摸顶",
+      "consequence": "连续止损",
+      "solution": "确认无明显趋势再用"
+    },
+    "no_confirmation": {
+      "description": "RSI < 30 立即买入",
+      "problem": "可能继续下跌到 10",
+      "solution": "等待反弹确认K线"
+    },
+    "holding_too_long": {
+      "description": "等待完全回归均值",
+      "problem": "可能形成新趋势",
+      "solution": "到达中轨附近就减仓"
+    },
+    "ignoring_market_regime": {
+      "description": "不看大环境盲目交易",
+      "solution": "先判断是趋势市还是震荡市"
+    }
+  },
+  
+  "performance": {
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "avg_profit_pct": 0.0,
+    "avg_loss_pct": 0.0,
+    "profit_factor": 0.0,
+    "total_pnl": 0.0,
+    "by_condition": {
+      "oversold_long": {"win_rate": 0.0, "trades": 0},
+      "overbought_short": {"win_rate": 0.0, "trades": 0}
+    }
+  },
+  
+  "learned_optimizations": {
+    "best_rsi_levels": {"oversold": 30, "overbought": 70},
+    "optimal_bollinger_settings": [20, 2],
+    "best_timeframe": "",
+    "ideal_market_vix_range": [15, 25],
+    "most_reliable_setups": []
+  },
+  
+  "notes": "均值回归在震荡市效果极佳，但在趋势市极其危险。核心是判断市场处于什么状态。永远等待确认，不要预测。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

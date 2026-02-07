@@ -1,0 +1,104 @@
+{
+  "name": "Support Resistance Bounce",
+  "type": "technical",
+  "category": "range_trading",
+  "description": "支撑阻力反弹策略 - 在关键支撑/阻力位反弹时交易",
+  "difficulty": "intermediate",
+  "timeframe": ["15min", "30min", "1hour"],
+  "best_for": ["range_bound_markets", "mean_reversion"],
+  
+  "rules": {
+    "entry_conditions": {
+      "support_bounce": [
+        "价格触及明确支撑位 (至少测试过2次)",
+        "出现反弹信号K线 (锤子线、看涨吞没)",
+        "RSI < 40 (超卖)",
+        "成交量放大 (买盘进场)",
+        "EMA21 在价格上方但距离不远 (< 3%)"
+      ],
+      "resistance_short": [
+        "价格触及明确阻力位",
+        "出现看跌反转K线",
+        "RSI > 60 (超买)",
+        "成交量萎缩 (买盘减弱)"
+      ]
+    },
+    "exit_conditions": {
+      "support_bounce": [
+        "达到阻力位",
+        "跌破支撑位",
+        "RSI 达到 65-70"
+      ],
+      "resistance_short": [
+        "达到支撑位",
+        "突破阻力位",
+        "RSI 达到 30-35"
+      ]
+    },
+    "stop_loss": {
+      "support_bounce": "支撑位下方 1%",
+      "resistance_short": "阻力位上方 1%"
+    },
+    "take_profit": {
+      "target": "区间中点或对面边界",
+      "risk_reward_ratio": 2.0,
+      "partial_exit": "区间50%处减仓30%"
+    },
+    "position_size": "账户净值的 3-5%",
+    "max_positions": 3
+  },
+  
+  "parameters": {
+    "support_resistance_strength": 2,
+    "lookback_period": 30,
+    "proximity_threshold": 0.5,
+    "min_range_size": 2.0,
+    "max_range_size": 8.0,
+    "rsi_oversold": 40,
+    "rsi_overbought": 60
+  },
+  
+  "support_resistance_identification": {
+    "methods": [
+      "价格多次测试同一水平",
+      "历史高低点",
+      "整数关口",
+      "斐波那契回撤位",
+      "前期成交密集区"
+    ],
+    "confirmation": "至少2次测试未突破"
+  },
+  
+  "performance": {
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "avg_profit_pct": 0.0,
+    "avg_loss_pct": 0.0,
+    "profit_factor": 0.0,
+    "sharpe_ratio": 0.0,
+    "max_drawdown": 0.0,
+    "total_pnl": 0.0,
+    "by_zone_type": {
+      "support_bounce": {"win_rate": 0.0, "trades": 0},
+      "resistance_short": {"win_rate": 0.0, "trades": 0}
+    }
+  },
+  
+  "learned_optimizations": {
+    "best_entry_point": "slight_penetration_then_recovery",
+    "optimal_range_size": "3-6%",
+    "best_timeframe": "30min",
+    "best_market_conditions": "sideways",
+    "zones_to_avoid": [
+      "只测试过1次的水平",
+      "最近被突破过的水平"
+    ]
+  },
+  
+  "notes": "最适合震荡市。趋势市场中容易失效。支撑阻力会随时间推移失效。第3次测试往往是突破的前兆。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

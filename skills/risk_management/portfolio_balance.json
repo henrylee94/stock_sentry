@@ -1,0 +1,208 @@
+{
+  "name": "Portfolio Balance",
+  "type": "risk_management",
+  "category": "diversification",
+  "description": "组合平衡策略 - 通过分散投资降低整体风险",
+  "difficulty": "intermediate",
+  "importance": "high",
+  
+  "diversification_principles": {
+    "dont_put_eggs_in_one_basket": {
+      "description": "不要把所有资金投入单一股票或板块",
+      "why": "单一失败不会摧毁整个账户",
+      "target": "5-10 只不同股票，2-3 个不同板块"
+    },
+    "correlation_matters": {
+      "description": "持有相关性低的资产",
+      "high_correlation_example": "NVDA + AMD (同一板块)",
+      "low_correlation_example": "NVDA + JNJ (科技 + 医疗)",
+      "goal": "当一个板块下跌，另一个可能上涨"
+    }
+  },
+  
+  "portfolio_allocation": {
+    "by_sector": {
+      "max_per_sector": "25-30%",
+      "min_sectors": 3,
+      "recommended_sectors": [
+        "Technology (20-25%)",
+        "Healthcare (15-20%)",
+        "Financials (10-15%)",
+        "Consumer (10-15%)",
+        "Energy/Materials (10-15%)",
+        "Others (10-15%)"
+      ],
+      "note": "比例根据市场环境和个人偏好调整"
+    },
+    "by_market_cap": {
+      "large_cap_>10B": "60-70% (稳定)",
+      "mid_cap_2B-10B": "20-30% (增长)",
+      "small_cap_<2B": "0-10% (高风险高回报)"
+    },
+    "by_strategy": {
+      "core_holdings": "50-60% (长期持有)",
+      "swing_trades": "30-40% (数周)",
+      "day_trades": "0-10% (当日)"
+    },
+    "cash_position": {
+      "minimum": "10-20%",
+      "purpose": ["应对机会", "防御下跌", "心理缓冲"],
+      "when_to_increase": ["市场过热", "找不到好机会", "波动加大"]
+    }
+  },
+  
+  "position_limits": {
+    "single_stock": {
+      "max": "10-15% of portfolio",
+      "ideal": "5-10%",
+      "exception": "高确信度可到 15-20%"
+    },
+    "correlated_stocks": {
+      "max_combined": "20% of portfolio",
+      "example": "NVDA + AMD + AVGO 合计不超过 20%"
+    },
+    "total_exposure": {
+      "conservative": "60-70% invested, 30-40% cash",
+      "moderate": "70-85% invested, 15-30% cash",
+      "aggressive": "85-95% invested, 5-15% cash"
+    }
+  },
+  
+  "rebalancing": {
+    "when_to_rebalance": [
+      "某个股票涨到占比 > 20%",
+      "板块偏离目标配置 > 10%",
+      "季度定期检查",
+      "市场环境重大变化"
+    ],
+    "how_to_rebalance": {
+      "trim_winners": "盈利股票部分止盈",
+      "add_to_losers": "仅当基本面未变",
+      "rotate_sectors": "从超配板块移到低配板块"
+    },
+    "tax_considerations": "短期资本利得税更高，考虑持有期"
+  },
+  
+  "risk_metrics": {
+    "portfolio_beta": {
+      "description": "组合相对市场的波动",
+      "target": "0.8-1.2",
+      "calculation": "加权平均各股票 beta"
+    },
+    "correlation_matrix": {
+      "description": "各持仓之间的相关性",
+      "tool": "Excel 或 Python 计算",
+      "goal": "避免过高相关性"
+    },
+    "max_drawdown": {
+      "description": "最大回撤",
+      "acceptable": "15-20%",
+      "action_if_exceeded": "减少风险敞口"
+    },
+    "sharpe_ratio": {
+      "description": "风险调整后收益",
+      "target": "> 1.0",
+      "formula": "(收益 - 无风险利率) / 标准差"
+    }
+  },
+  
+  "defensive_strategies": {
+    "hedge_positions": {
+      "description": "对冲保护组合",
+      "methods": [
+        "买入 SPY 看跌期权",
+        "持有逆相关资产 (黄金、VIX)",
+        "增加现金仓位"
+      ],
+      "when": "市场过热或不确定性高"
+    },
+    "stop_loss_on_portfolio": {
+      "trigger": "组合下跌 10-15%",
+      "action": "减少所有仓位至 50%",
+      "reset": "市场企稳后重新建仓"
+    }
+  },
+  
+  "portfolio_types": {
+    "conservative": {
+      "description": "保守型",
+      "allocation": {
+        "large_cap": "80%",
+        "mid_cap": "15%",
+        "small_cap": "5%",
+        "cash": "20-30%"
+      },
+      "sectors": "防御性板块 (Healthcare, Utilities, Staples)",
+      "expected_return": "8-12% 年化",
+      "max_drawdown": "10-15%"
+    },
+    "moderate": {
+      "description": "平衡型",
+      "allocation": {
+        "large_cap": "60%",
+        "mid_cap": "30%",
+        "small_cap": "10%",
+        "cash": "15-20%"
+      },
+      "sectors": "混合防御和成长",
+      "expected_return": "12-18% 年化",
+      "max_drawdown": "15-20%"
+    },
+    "aggressive": {
+      "description": "进取型",
+      "allocation": {
+        "large_cap": "40%",
+        "mid_cap": "40%",
+        "small_cap": "20%",
+        "cash": "5-10%"
+      },
+      "sectors": "成长型板块 (Technology, Consumer Discretionary)",
+      "expected_return": "20%+ 年化",
+      "max_drawdown": "25-35%"
+    }
+  },
+  
+  "rules": {
+    "never": [
+      "全仓单一股票",
+      "所有资金在同一板块",
+      "持有完全相关的股票",
+      "零现金仓位"
+    ],
+    "always": [
+      "保持至少 3 个不同板块",
+      "定期检查组合平衡",
+      "设置组合级别止损",
+      "记录每次调整原因"
+    ],
+    "portfolio_size": {
+      "too_few_<3": "风险过度集中",
+      "optimal_5-10": "平衡分散和管理",
+      "too_many_>20": "难以管理，稀释收益"
+    }
+  },
+  
+  "monitoring": {
+    "daily": ["个股重大新闻", "技术止损触发"],
+    "weekly": ["组合表现 vs 基准", "仓位配置检查"],
+    "monthly": ["全面绩效复盘", "必要时rebalance"],
+    "quarterly": ["策略有效性评估", "年度目标进度"]
+  },
+  
+  "performance_tracking": {
+    "metrics_to_track": [
+      "总收益 vs SPY",
+      "最大回撤",
+      "夏普比率",
+      "胜率",
+      "盈亏比",
+      "平均持仓时间",
+      "板块配置 vs 目标"
+    ]
+  },
+  
+  "notes": "分散投资不能消除系统性风险，但能大幅降低个股风险。不要过度分散导致难以管理。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

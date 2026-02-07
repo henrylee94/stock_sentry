@@ -1,0 +1,255 @@
+{
+  "name": "Volatility Trading",
+  "type": "market_conditions",
+  "category": "volatility_based",
+  "description": "波动率交易策略 - 利用市场波动获利",
+  "difficulty": "advanced",
+  "timeframe": ["intraday", "event_driven"],
+  "best_for": ["high_volatility_events", "option_traders"],
+  "philosophy": "波动本身就是机会，无论方向",
+  
+  "volatility_types": {
+    "historical_volatility": {
+      "description": "过去价格实际波动",
+      "calculation": "过去20日价格标准差",
+      "use": "判断当前是高波还是低波环境"
+    },
+    "implied_volatility": {
+      "description": "期权价格隐含的未来波动预期",
+      "indicator": "VIX (S&P 500 波动率指数)",
+      "use": "判断市场恐慌/贪婪程度"
+    },
+    "vix_levels": {
+      "low": "VIX < 15 (complacency 自满)",
+      "normal": "VIX 15-20",
+      "elevated": "VIX 20-30 (concern 担忧)",
+      "high": "VIX 30-40 (fear 恐惧)",
+      "extreme": "VIX > 40 (panic 恐慌)"
+    }
+  },
+  
+  "strategies": {
+    "volatility_expansion": {
+      "description": "波动率扩张 - 低波后爆发",
+      "setup": [
+        "VIX 处于历史低位 (< 15)",
+        "布林带收窄 (带宽 < 6%)",
+        "ATR 下降到低位",
+        "市场横盘数周"
+      ],
+      "entry": {
+        "method": "买入跨式期权 (Straddle)",
+        "or": "等待突破后顺势",
+        "timing": "波动率即将扩张前"
+      },
+      "exit": "VIX 飙升到 > 25 或波动发生",
+      "risk": "低波可能持续更久"
+    },
+    "volatility_contraction": {
+      "description": "波动率收缩 - 高波后回归",
+      "setup": [
+        "VIX > 30 (恐慌)",
+        "市场剧烈波动数日",
+        "恐慌性抛售",
+        "新闻驱动的过度反应"
+      ],
+      "entry": {
+        "method": "卖出跨式期权 (Short Straddle)",
+        "or": "震荡交易 (做多低估，做空高估)",
+        "timing": "波动率见顶回落时"
+      },
+      "exit": "VIX 回落到 < 20",
+      "risk": "波动可能继续升级"
+    },
+    "event_driven_volatility": {
+      "description": "事件驱动波动",
+      "events": [
+        "财报发布",
+        "FOMC 会议",
+        "总统选举",
+        "重大经济数据 (非农、CPI)",
+        "地缘政治事件"
+      ],
+      "strategy": {
+        "before_event": "买入 Straddle (押注大波动)",
+        "after_event": "顺势交易方向",
+        "decay_risk": "时间值损耗"
+      }
+    },
+    "gap_trading": {
+      "description": "跳空交易 - 高波动产物",
+      "gap_up": {
+        "setup": "开盘价 > 昨收盘 2%+",
+        "strategy_1": "Gap fill: 做空等待回补",
+        "strategy_2": "Gap run: 放量突破做多"
+      },
+      "gap_down": {
+        "setup": "开盘价 < 昨收盘 2%+",
+        "strategy_1": "抄底反弹",
+        "strategy_2": "继续做空"
+      },
+      "key": "看首30分钟成交量和方向"
+    }
+  },
+  
+  "entry_rules": {
+    "high_volatility_trading": {
+      "conditions": [
+        "VIX > 25",
+        "ATR 明显放大",
+        "日内波幅 > 2%",
+        "快速价格波动"
+      ],
+      "tactics": {
+        "wider_stops": "止损加倍 (正常 2% → 4%)",
+        "smaller_positions": "减半仓位",
+        "quicker_exits": "达到目标立即走",
+        "avoid_overnight": "不持仓过夜"
+      }
+    },
+    "low_volatility_trading": {
+      "conditions": [
+        "VIX < 15",
+        "ATR 低位",
+        "日内波幅 < 1%",
+        "价格横盘"
+      ],
+      "tactics": {
+        "wait_for_breakout": "等待突破再入场",
+        "range_trade": "区间高抛低吸",
+        "tighter_stops": "止损可以更紧",
+        "larger_positions": "可以加大仓位"
+      }
+    }
+  },
+  
+  "volatility_indicators": {
+    "atr": {
+      "name": "Average True Range",
+      "use": "衡量价格波动幅度",
+      "high_atr": "波动大，风险高",
+      "low_atr": "波动小，可能突破前奏"
+    },
+    "bollinger_band_width": {
+      "calculation": "(上轨 - 下轨) / 中轨",
+      "narrow": "< 6% = 低波",
+      "wide": "> 12% = 高波",
+      "squeeze": "极窄后通常爆发"
+    },
+    "historical_range": {
+      "calculation": "(今日最高 - 今日最低) / 开盘价",
+      "normal": "1-2%",
+      "high_vol": "> 3%",
+      "extreme": "> 5%"
+    }
+  },
+  
+  "rules": {
+    "position_sizing_by_volatility": {
+      "low_vol_vix<15": "正常仓位 100%",
+      "normal_vol_vix15-25": "正常仓位 100%",
+      "high_vol_vix25-35": "减仓 50-70%",
+      "extreme_vol_vix>35": "减仓 25-50%"
+    },
+    "stop_loss_by_volatility": {
+      "low_vol": "2% 止损",
+      "normal_vol": "3% 止损",
+      "high_vol": "5% 止损",
+      "calculation": "ATR × 2 作为止损距离"
+    },
+    "best_times_to_trade": {
+      "high_vol": [
+        "市场开盘首30分钟",
+        "重大新闻发布时",
+        "财报季",
+        "FOMC 决议日"
+      ],
+      "avoid": [
+        "午休时段 (12-2 PM EST)",
+        "周五下午",
+        "节假日前后"
+      ]
+    }
+  },
+  
+  "option_strategies_for_volatility": {
+    "long_straddle": {
+      "description": "买入同价看涨+看跌期权",
+      "when": "预期大波动但不确定方向",
+      "profit": "大幅波动 (任何方向)",
+      "loss": "横盘 (时间值损耗)",
+      "max_loss": "支付的权利金"
+    },
+    "iron_condor": {
+      "description": "卖出区间外期权",
+      "when": "预期低波动，横盘",
+      "profit": "价格在区间内",
+      "loss": "大幅突破",
+      "max_profit": "收取的权利金"
+    },
+    "calendar_spread": {
+      "description": "利用时间值差异",
+      "when": "波动率预期上升",
+      "benefit": "低风险押注波动"
+    }
+  },
+  
+  "vix_trading_signals": {
+    "vix_spike": {
+      "signal": "VIX 单日涨 > 20%",
+      "meaning": "恐慌抛售，可能见底",
+      "action": "寻找抄底机会 (但谨慎)"
+    },
+    "vix_extreme_high": {
+      "signal": "VIX > 40",
+      "meaning": "极度恐慌",
+      "action": "市场底部可能接近",
+      "note": "可能继续恐慌数天"
+    },
+    "vix_complacency": {
+      "signal": "VIX < 12",
+      "meaning": "市场自满",
+      "action": "警惕调整，减少仓位"
+    }
+  },
+  
+  "performance": {
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "avg_profit_pct": 0.0,
+    "total_pnl": 0.0,
+    "by_volatility_regime": {
+      "low_vol": {"trades": 0, "pnl": 0.0},
+      "high_vol": {"trades": 0, "pnl": 0.0}
+    }
+  },
+  
+  "learned_optimizations": {
+    "best_vix_entry_levels": [],
+    "optimal_position_size_by_vix": {},
+    "most_profitable_volatility_regime": "",
+    "best_timeframes": []
+  },
+  
+  "risk_management": {
+    "never": [
+      "在 VIX > 35 时满仓",
+      "在低波时卖出裸期权",
+      "忽视波动率变化",
+      "用固定仓位应对所有波动环境"
+    ],
+    "always": [
+      "根据 VIX 调整仓位",
+      "高波时扩大止损",
+      "低波时警惕突破",
+      "监控 VIX 日内变化"
+    ]
+  },
+  
+  "notes": "波动率是双刃剑。高波带来机会，也带来风险。适应波动环境比固守策略更重要。VIX 是最好的恐慌指标。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}

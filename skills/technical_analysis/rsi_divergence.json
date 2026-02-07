@@ -1,0 +1,81 @@
+{
+  "name": "RSI Divergence",
+  "type": "technical",
+  "category": "reversal",
+  "description": "RSI 背离策略 - 价格与 RSI 方向相反时，预示趋势反转",
+  "difficulty": "intermediate",
+  "timeframe": ["15min", "1hour", "4hour"],
+  "best_for": ["reversal_trading", "oversold_bounce"],
+  
+  "rules": {
+    "entry_conditions": {
+      "bullish_divergence": [
+        "价格创新低，但 RSI 未创新低 (底背离)",
+        "RSI < 35 (超卖区)",
+        "价格触及支撑位",
+        "成交量减少 (卖压减弱)",
+        "确认K线: 出现看涨吞没或锤子线"
+      ],
+      "bearish_divergence": [
+        "价格创新高，但 RSI 未创新高 (顶背离)",
+        "RSI > 65 (超买区)",
+        "价格触及阻力位",
+        "成交量减少 (买盘减弱)",
+        "确认K线: 出现看跌吞没或流星线"
+      ]
+    },
+    "exit_conditions": [
+      "RSI 回到 50 中线",
+      "达到目标位 (支撑/阻力位)",
+      "背离失效 (价格继续原方向)",
+      "止损触发"
+    ],
+    "stop_loss": {
+      "bullish": "最近低点下方 1.5%",
+      "bearish": "最近高点上方 1.5%"
+    },
+    "take_profit": {
+      "target": "前一个高点/低点",
+      "risk_reward_ratio": 2.5
+    },
+    "position_size": "账户净值的 2-4%",
+    "max_positions": 2
+  },
+  
+  "parameters": {
+    "rsi_period": 14,
+    "oversold_level": 35,
+    "overbought_level": 65,
+    "lookback_period": 20,
+    "min_divergence_bars": 3
+  },
+  
+  "performance": {
+    "total_trades": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "avg_profit_pct": 0.0,
+    "avg_loss_pct": 0.0,
+    "profit_factor": 0.0,
+    "sharpe_ratio": 0.0,
+    "max_drawdown": 0.0,
+    "total_pnl": 0.0
+  },
+  
+  "learned_optimizations": {
+    "best_rsi_oversold": 30,
+    "best_rsi_overbought": 70,
+    "optimal_timeframe": "1hour",
+    "best_market_conditions": "range_bound",
+    "success_rate_by_divergence_type": {
+      "bullish": 0.0,
+      "bearish": 0.0
+    }
+  },
+  
+  "notes": "需要耐心等待确认信号。假背离较常见，必须等待K线确认。最适合震荡市场。",
+  "created_at": "2025-02-07",
+  "last_updated": "2025-02-07",
+  "version": "1.0"
+}
