@@ -1,0 +1,16 @@
+{
+  "weekly_profit": 0,
+  "weekly_goal": 10000,
+  "priority": [
+    "NVDA",
+    "PLTR",
+    "RKLB",
+    "SOFI",
+    "OKLO",
+    "MP",
+    "BMNR"
+  ],
+  "ai_usage": 10,
+  "language": "both",
+  "favorite_setups": []
+}

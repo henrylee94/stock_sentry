@@ -444,9 +444,14 @@ async def ai_brain(update: Update, context):
     user_query = update.message.text.strip()
     
     # Extract stock symbols
-    symbols = re.findall(r'\b[A-Z]{2,5}\b', user_query)
-    stock_symbols = [s for s in symbols if len(s) <= 5]
-    
+    try:
+        symbols = re.findall(r'\b[A-Z]{2,5}\b', user_query)
+        stock_symbols = re.findall(r'\$\s*?([A-Z]{2,5})\b|\b([A-Z]{2,5})\b', user_query)
+        stock_symbols = [s[0] or s[1] for s in stock_symbols if s[0] or s[1]]
+        stock_symbols = list(set(stock_symbols))[:3]  # Dedupe + limit
+    except:
+        stock_symbols = []  # Safe fallback
+
     # Fetch stock data if symbols detected (optional)
     stock_data_context = ""
     data_sources = []
@@ -525,16 +530,17 @@ async def ai_brain(update: Update, context):
                             stock_data_context += f"• {skill['name']} ({skill['difficulty']}): {skill['description']}\n"
         else:
             # No real-time data available - AI uses knowledge
-            stock_data_context = f"\n\n📊 分析股票: {', '.join(stock_symbols)}\n⚠️ 无实时数据，基于市场知识和最新趋势分析"
-            data_sources.append(f"📰 使用 AI 市场知识分析")
-- RSI: {data['rsi']:.0f}
-- EMA9: ${data['ema_9']:.2f} | EMA21: ${data['ema_21']:.2f}
-- 今日高/低: ${data['day_high']:.2f} / ${data['day_low']:.2f}
-- 本周高/低: ${data['week_high']:.2f} / ${data['week_low']:.2f}
-- 支撑位: ${data['support']:.2f} | 阻力位: ${data['resistance']:.2f}
-- 成交量比率: {data['volume_ratio']:.2f}x (当前: {data['current_volume']:,}, 平均: {data['avg_volume']:,})
-"""
-    
+            stock_data_context += f"""
+            {sym} (更新: {data['last_update']}):
+            - 当前价格: ${data['current_price']:.2f} ({data['price_change_pct']:+.2f}%)
+            - 趋势: {data['trend']}
+            - RSI: {data['rsi']:.0f}
+            - EMA9: ${data['ema_9']:.2f} | EMA21: ${data['ema_21']:.2f}
+            - 今日高/低: ${data['day_high']:.2f} / ${data['day_low']:.2f}
+            - 本周高/低: ${data['week_high']:.2f} / ${data['week_low']:.2f}
+            - 支撑位: ${data['support']:.2f} | 阻力位: ${data['resistance']:.2f}
+            - 成交量比率: {data['volume_ratio']:.2f}x            """
+                
     # Call AI
     try:
         ai_usage_today += 1
