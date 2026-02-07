@@ -523,11 +523,15 @@ async def ai_brain(update: Update, context):
                 # 去重
                 recommended_skills = list(set(recommended_skills))[:3]
                 if recommended_skills:
-                    stock_data_context += "\n\n📚 推荐策略:\n"
-                    for skill_name in recommended_skills:
-                        skill = skills_manager.get_skill(skill_name)
-                        if skill:
-                            stock_data_context += f"• {skill['name']} ({skill['difficulty']}): {skill['description']}\n"
+                    try:
+                        stock_data_context += "\n\n📚 推荐策略:\n"
+                        for skill_name in recommended_skills:
+                            skill = skills_manager.get_skill(skill_name)
+                            if skill:
+                                stock_data_context += f"• {skill['name']} ({skill['difficulty']}): {skill['description']}\n"
+                    except Exception as e:
+                        print(f"Skills error: {e}")
+                        stock_data_context += "\n\n📚 推荐策略: 加载中...\n"
         else:
             # No real-time data available - AI uses knowledge
             stock_data_context += f"""
