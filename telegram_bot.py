@@ -2,157 +2,941 @@ import logging
 import re
 import pandas as pd
 import numpy as np
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters  # v13.15
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 import yfinance as yf
 import json
 from pathlib import Path
 import os
 from openai import OpenAI
-from datetime import datetime
-from dotenv import load_dotenv
+from datetime import datetime, timedelta
+import asyncio
+import pytz
 
-load_dotenv()
+# READ .env FILE DIRECTLY
+def load_env_file():
+    env_file = Path('.env')
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            if '=' in line and not line.startswith('#'):
+                key, value = line.split('=', 1)
+                os.environ[key.strip()] = value.strip()
+        print("✅ .env loaded!")
+
+load_env_file()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CONFIG_FILE = Path("geewoni_config.json")
 OPENAI_KEY = os.getenv("OPENAI_KEY")
+CONFIG_FILE = Path("geewoni_config.json")
+TRADES_FILE = Path("trades_history.json")
+STRATEGIES_FILE = Path("strategies.json")
+AI_LEARNING_FILE = Path("ai_learning.json")
+
 ai_usage_today = 0
 daily_limit = 1000
 
 client = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
-ENVIRONMENT = os.getenv('ENVIRONMENT', 'local')
 
-print(f"🧠 GEEWONI AI TRADING BRAIN v6.2")
+print(f"🧠 GEEWONI AI 交易大脑 v7.0")
 print(f"{'✅ gpt-4o-mini LIVE' if client else '⚠️ ADD OPENAI_KEY'}")
 
-# ... [KEEP ALL your other functions EXACTLY THE SAME: load_config, save_config, get_live_data, compute_rsi] ...
+# Config functions
+config = {}
+def load_config():
+    global config
+    if CONFIG_FILE.exists():
+        config = json.loads(CONFIG_FILE.read_text())
+    else:
+        config = {
+            'weekly_profit': 0,
+            'weekly_goal': 10000,
+            'priority': ['NVDA', 'PLTR', 'RKLB', 'SOFI', 'OKLO', 'MP', 'BMNR'],
+            'ai_usage': 0,
+            'language': 'both',  # both, chinese, english
+            'favorite_setups': []
+        }
+        save_config(config)
 
-# v13.15 COMPATIBLE HANDLERS (NO ContextTypes)
-def ai_trading_brain(update, context):  # ← NO ContextTypes
+def save_config(config):
+    CONFIG_FILE.write_text(json.dumps(config, indent=2))
+
+# Trade tracking
+def load_trades():
+    if TRADES_FILE.exists():
+        return json.loads(TRADES_FILE.read_text())
+    return []
+
+def save_trade(trade):
+    trades = load_trades()
+    trades.append(trade)
+    TRADES_FILE.write_text(json.dumps(trades, indent=2))
+
+def calculate_win_rate():
+    trades = load_trades()
+    if not trades:
+        return 0, 0, 0
+    
+    closed_trades = [t for t in trades if t.get('status') == 'closed']
+    if not closed_trades:
+        return 0, 0, 0
+    
+    wins = len([t for t in closed_trades if t.get('profit', 0) > 0])
+    total = len(closed_trades)
+    win_rate = (wins / total * 100) if total > 0 else 0
+    
+    total_profit = sum([t.get('profit', 0) for t in closed_trades])
+    
+    return win_rate, wins, total
+
+# Strategy tracking
+def load_strategies():
+    if STRATEGIES_FILE.exists():
+        return json.loads(STRATEGIES_FILE.read_text())
+    return {
+        'EMA Crossover': {'wins': 0, 'losses': 0, 'profit': 0},
+        'Volume Breakout': {'wins': 0, 'losses': 0, 'profit': 0},
+        'Support/Resistance': {'wins': 0, 'losses': 0, 'profit': 0},
+        'Reversal': {'wins': 0, 'losses': 0, 'profit': 0}
+    }
+
+def save_strategies(strategies):
+    STRATEGIES_FILE.write_text(json.dumps(strategies, indent=2))
+
+def update_strategy_performance(strategy_name, profit):
+    strategies = load_strategies()
+    if strategy_name not in strategies:
+        strategies[strategy_name] = {'wins': 0, 'losses': 0, 'profit': 0}
+    
+    if profit > 0:
+        strategies[strategy_name]['wins'] += 1
+    else:
+        strategies[strategy_name]['losses'] += 1
+    
+    strategies[strategy_name]['profit'] += profit
+    save_strategies(strategies)
+
+# AI Learning System
+def load_ai_learning():
+    """Load AI learning data - tracks recommendations and outcomes"""
+    if AI_LEARNING_FILE.exists():
+        return json.loads(AI_LEARNING_FILE.read_text())
+    return {
+        'recommendations': [],  # All AI recommendations
+        'followed_trades': [],  # Trades user actually made after AI suggestion
+        'learning_insights': {
+            'best_rsi_range': {'min': 40, 'max': 60},
+            'best_volume_ratio': 1.5,
+            'best_ema_setup': 'bullish_crossover',
+            'preferred_strategies': [],
+            'success_patterns': []
+        },
+        'total_recommendations': 0,
+        'recommendations_followed': 0,
+        'follow_rate': 0
+    }
+
+def save_ai_learning(learning_data):
+    AI_LEARNING_FILE.write_text(json.dumps(learning_data, indent=2))
+
+def log_ai_recommendation(symbol, recommendation_data):
+    """Log when AI makes a recommendation"""
+    learning = load_ai_learning()
+    
+    rec = {
+        'id': datetime.now().strftime('%Y%m%d%H%M%S'),
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'symbol': symbol,
+        'entry_price': recommendation_data.get('entry_price'),
+        'target_price': recommendation_data.get('target_price'),
+        'stop_loss': recommendation_data.get('stop_loss'),
+        'strategy': recommendation_data.get('strategy'),
+        'rsi': recommendation_data.get('rsi'),
+        'volume_ratio': recommendation_data.get('volume_ratio'),
+        'ema_setup': recommendation_data.get('ema_setup'),
+        'followed': False,
+        'outcome': None  # Will be filled when trade closes
+    }
+    
+    learning['recommendations'].append(rec)
+    learning['total_recommendations'] += 1
+    save_ai_learning(learning)
+    
+    print(f"📝 AI 推荐已记录: {symbol} @ ${recommendation_data.get('entry_price')}")
+    
+    return rec['id']
+
+def mark_recommendation_followed(symbol, entry_price, recommendation_id=None):
+    """Mark that user followed an AI recommendation"""
+    learning = load_ai_learning()
+    
+    # Find matching recommendation (by symbol and similar entry price)
+    for rec in reversed(learning['recommendations']):
+        if rec['symbol'] == symbol and not rec['followed']:
+            # Check if entry price is within 2% of recommendation
+            if abs(entry_price - rec['entry_price']) / rec['entry_price'] < 0.02:
+                rec['followed'] = True
+                learning['recommendations_followed'] += 1
+                learning['follow_rate'] = (learning['recommendations_followed'] / learning['total_recommendations'] * 100)
+                
+                learning['followed_trades'].append({
+                    'recommendation_id': rec['id'],
+                    'symbol': symbol,
+                    'entry_price': entry_price,
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                })
+                
+                save_ai_learning(learning)
+                print(f"✅ 用户跟随了 AI 推荐: {symbol}")
+                return True
+    
+    return False
+
+def update_recommendation_outcome(symbol, exit_price, profit):
+    """Update outcome when trade closes"""
+    learning = load_ai_learning()
+    
+    # Find the followed recommendation
+    for rec in reversed(learning['recommendations']):
+        if rec['symbol'] == symbol and rec['followed'] and rec['outcome'] is None:
+            rec['outcome'] = {
+                'exit_price': exit_price,
+                'profit': profit,
+                'success': profit > 0,
+                'close_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            # Learn from this trade
+            if profit > 0:
+                # This was a successful pattern - remember it
+                pattern = {
+                    'rsi': rec['rsi'],
+                    'volume_ratio': rec['volume_ratio'],
+                    'ema_setup': rec['ema_setup'],
+                    'strategy': rec['strategy']
+                }
+                learning['learning_insights']['success_patterns'].append(pattern)
+                
+                # Update best parameters based on successful trades
+                update_learning_insights(learning, rec)
+            
+            save_ai_learning(learning)
+            print(f"📊 AI 学习更新: {symbol} 结果已记录 (盈亏: ${profit:+.2f})")
+            return True
+    
+    return False
+
+def update_learning_insights(learning, successful_rec):
+    """Update AI's learning insights based on successful trades"""
+    insights = learning['learning_insights']
+    
+    # Adjust RSI range based on successful trades
+    if successful_rec['rsi']:
+        rsi = successful_rec['rsi']
+        # Narrow down to successful RSI range
+        if rsi > insights['best_rsi_range']['min'] and rsi < insights['best_rsi_range']['max']:
+            pass  # Already in range
+        else:
+            # Expand range slightly to include this success
+            if rsi < insights['best_rsi_range']['min']:
+                insights['best_rsi_range']['min'] = max(30, rsi - 5)
+            if rsi > insights['best_rsi_range']['max']:
+                insights['best_rsi_range']['max'] = min(70, rsi + 5)
+    
+    # Track best strategies
+    if successful_rec['strategy'] not in insights['preferred_strategies']:
+        insights['preferred_strategies'].append(successful_rec['strategy'])
+
+def get_ai_insights_summary():
+    """Get summary of what AI has learned"""
+    learning = load_ai_learning()
+    insights = learning['learning_insights']
+    
+    successful_trades = [r for r in learning['recommendations'] if r.get('outcome') and r['outcome']['success']]
+    total_followed = len([r for r in learning['recommendations'] if r['followed']])
+    
+    if not successful_trades:
+        return "AI 还在学习中... 需要更多交易数据"
+    
+    success_rate = (len(successful_trades) / total_followed * 100) if total_followed > 0 else 0
+    
+    summary = f"""📚 <b>AI 学习总结</b>
+
+📊 <b>推荐统计:</b>
+- 总推荐: {learning['total_recommendations']}
+- 跟随率: {learning['follow_rate']:.1f}%
+- 成功率: {success_rate:.1f}% ({len(successful_trades)}/{total_followed})
+
+🎯 <b>AI 学到的最佳设置:</b>
+- RSI 范围: {insights['best_rsi_range']['min']:.0f} - {insights['best_rsi_range']['max']:.0f}
+- 成交量倍数: >{insights['best_volume_ratio']:.1f}x
+- 最佳策略: {', '.join(insights['preferred_strategies'][:3]) if insights['preferred_strategies'] else '学习中'}
+
+💡 <b>成功模式数量:</b> {len(insights['success_patterns'])}
+"""
+    
+    return summary
+
+def get_extended_stock_data(symbol):
+    """Get comprehensive stock data including pre-market, historical for EMA/support analysis"""
+    try:
+        import warnings
+        warnings.filterwarnings('ignore')
+        
+        print(f"📡 Fetching {symbol}...")
+        ticker = yf.Ticker(symbol)
+        
+        # Get 30 days for EMA
+        hist_data = ticker.history(period="1mo", interval="1d")
+        
+        # Get today's intraday
+        today_data = ticker.history(period="1d", interval="5m")
+        
+        if hist_data.empty:
+            print(f"❌ {symbol}: Yahoo Finance 无数据")
+            return None
+        
+        current_price = hist_data['Close'].iloc[-1]
+        
+        # Calculate EMAs
+        ema_9 = hist_data['Close'].ewm(span=9, adjust=False).mean().iloc[-1]
+        ema_21 = hist_data['Close'].ewm(span=21, adjust=False).mean().iloc[-1]
+        ema_50 = hist_data['Close'].ewm(span=21, adjust=False).mean().iloc[-1] if len(hist_data) >= 21 else None
+        
+        # RSI calculation
+        delta = hist_data['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs)).iloc[-1] if not rs.empty else 50
+        
+        # Support/Resistance
+        recent_high = hist_data['High'].tail(20).max()
+        recent_low = hist_data['Low'].tail(20).min()
+        week_high = hist_data['High'].tail(5).max()
+        week_low = hist_data['Low'].tail(5).min()
+        day_high = today_data['High'].max() if not today_data.empty else recent_high
+        day_low = today_data['Low'].min() if not today_data.empty else recent_low
+        
+        # Volume
+        avg_volume = hist_data['Volume'].tail(20).mean()
+        current_volume = hist_data['Volume'].iloc[-1]
+        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
+        
+        # Trend determination
+        if current_price > ema_9 > ema_21:
+            trend = "强势看涨"
+        elif current_price < ema_9 < ema_21:
+            trend = "强势看跌"
+        elif current_price > ema_9:
+            trend = "弱势看涨"
+        else:
+            trend = "弱势看跌"
+        
+        last_update = hist_data.index[-1].strftime('%Y-%m-%d %H:%M')
+        
+        result = {
+            'symbol': symbol,
+            'current_price': float(current_price),
+            'ema_9': float(ema_9),
+            'ema_21': float(ema_21),
+            'ema_50': float(ema_50) if ema_50 else None,
+            'rsi': float(rsi),
+            'resistance': float(recent_high),
+            'support': float(recent_low),
+            'week_high': float(week_high),
+            'week_low': float(week_low),
+            'day_high': float(day_high),
+            'day_low': float(day_low),
+            'avg_volume': int(avg_volume),
+            'current_volume': int(current_volume),
+            'volume_ratio': float(volume_ratio),
+            'trend': trend,
+            'price_change_pct': float(((current_price - hist_data['Close'].iloc[-2]) / hist_data['Close'].iloc[-2]) * 100),
+            'last_update': last_update,
+            'data_source': 'Yahoo Finance'
+        }
+        
+        print(f"✅ {symbol}: ${current_price:.2f} | 趋势: {trend} | RSI: {rsi:.0f}")
+        return result
+        
+    except Exception as e:
+        print(f"❌ {symbol} Error: {e}")
+        return None
+
+load_config()
+
+# AI Brain - handles everything
+async def ai_brain(update: Update, context):
     global ai_usage_today
     
     if not update.message or not update.message.text:
-        update.message.reply_text("💬 Type: NVDA entry point?")
         return
-        
+    
+    if not client:
+        await update.message.reply_text("⚠️ AI 不可用。请在 .env 添加 OPENAI_KEY")
+        return
+    
+    if ai_usage_today >= daily_limit:
+        await update.message.reply_text(f"⚠️ 今日额度已用完 ({daily_limit} 次)")
+        return
+    
     user_query = update.message.text.strip()
+    
+    # Extract stock symbols
     symbols = re.findall(r'\b[A-Z]{2,5}\b', user_query)
+    stock_symbols = [s for s in symbols if len(s) <= 5]
     
-    live_data = {}
-    for symbol in set(symbols)[:3]:
-        data = get_live_data(symbol)
-        if data:
-            live_data[symbol] = data
+    # Fetch stock data if symbols detected
+    stock_data_context = ""
+    data_sources = []
     
-    if client and ai_usage_today < daily_limit:
+    if stock_symbols:
+        print(f"🔍 检测到股票代码: {stock_symbols}")
+        stock_data = {}
+        
+        for symbol in list(set(stock_symbols))[:3]:
+            data = get_extended_stock_data(symbol)
+            if data:
+                stock_data[symbol] = data
+                data_sources.append(f"✅ {symbol}: Yahoo Finance ({data['last_update']})")
+            else:
+                data_sources.append(f"❌ {symbol}: 数据获取失败")
+        
+        if stock_data:
+            stock_data_context = "\n\n📊 实时市场数据 (Yahoo Finance):\n"
+            for sym, data in stock_data.items():
+                stock_data_context += f"""
+{sym} (更新: {data['last_update']}):
+- 当前价格: ${data['current_price']:.2f} ({data['price_change_pct']:+.2f}%)
+- 趋势: {data['trend']}
+- RSI: {data['rsi']:.0f}
+- EMA9: ${data['ema_9']:.2f} | EMA21: ${data['ema_21']:.2f}
+- 今日高/低: ${data['day_high']:.2f} / ${data['day_low']:.2f}
+- 本周高/低: ${data['week_high']:.2f} / ${data['week_low']:.2f}
+- 支撑位: ${data['support']:.2f} | 阻力位: ${data['resistance']:.2f}
+- 成交量比率: {data['volume_ratio']:.2f}x (当前: {data['current_volume']:,}, 平均: {data['avg_volume']:,})
+"""
+    
+    # Call AI
+    try:
+        ai_usage_today += 1
+        config['ai_usage'] = ai_usage_today
+        save_config(config)
+        
+        print(f"🤖 调用 OpenAI API (使用次数: {ai_usage_today}/{daily_limit})...")
+        
+        # Get best performing strategies
+        strategies = load_strategies()
+        best_strategy = max(strategies.items(), key=lambda x: x[1]['profit']) if strategies else None
+        
+        # Get AI learning insights
+        learning = load_ai_learning()
+        insights = learning['learning_insights']
+        
+        # Build learning context
+        learning_context = ""
+        if learning['total_recommendations'] > 0:
+            success_rate = (learning['recommendations_followed'] / learning['total_recommendations'] * 100) if learning['total_recommendations'] > 0 else 0
+            learning_context = f"""
+AI 学习数据:
+- 推荐成功率: {success_rate:.1f}%
+- 最佳 RSI 范围: {insights['best_rsi_range']['min']:.0f}-{insights['best_rsi_range']['max']:.0f}
+- 最佳成交量倍数: >{insights['best_volume_ratio']:.1f}x
+- 用户偏好策略: {', '.join(insights['preferred_strategies'][:3]) if insights['preferred_strategies'] else '无'}
+"""
+        
+        system_prompt = f"""你是 GEEWONI AI - 专业日内交易分析师，能够从历史交易中学习和改进。
+
+账户状态:
+- 本周盈亏: ${config['weekly_profit']}/{config['weekly_goal']}
+- 重点股票: {', '.join(config['priority'])}
+- 最佳策略: {best_strategy[0] if best_strategy else 'N/A'} (盈利: ${best_strategy[1]['profit']:.2f})
+
+{learning_context}
+
+{stock_data_context if stock_data_context else "无股票数据 - 作为通用AI助手回答"}
+
+当分析股票时，使用学习到的最佳参数:
+1. 使用 EMA 交叉判断趋势 (EMA9 vs EMA21)
+   - 价格 > EMA9 > EMA21 = 强势看涨
+   - 价格 < EMA9 < EMA21 = 强势看跌
+2. RSI 最佳范围: {insights['best_rsi_range']['min']:.0f}-{insights['best_rsi_range']['max']:.0f} (根据历史成功交易学习)
+3. 成交量确认: >{insights['best_volume_ratio']:.1f}x (根据历史数据优化)
+4. 优先推荐用户成功率高的策略: {', '.join(insights['preferred_strategies'][:2]) if insights['preferred_strategies'] else '所有策略'}
+5. 提供具体的:
+   - 入场价格 (支撑位附近 + 趋势确认)
+   - 目标价格 (阻力位)
+   - 止损价格 (支撑位下方2-3%)
+   - 推荐策略名称
+
+回复格式 (简短直接):
+📊 [股票代码] 分析
+💰 当前: $XXX (趋势)
+📈 入场: $XXX (原因)
+🎯 目标: $XXX 
+🛑 止损: $XXX
+📋 策略: [策略名称]
+💡 理由: [一句话说明]
+
+用中文回复，简短专业。基于学习数据优化推荐。"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_query}
+            ],
+            max_tokens=600,
+            temperature=0.3
+        )
+        
+        response_text = response.choices[0].message.content
+        
+        # Extract AI recommendations from response (if stock analysis)
+        if stock_data_context:
+            # Try to extract recommendation details
+            for symbol in stock_data.keys():
+                try:
+                    # Extract prices from AI response (simple pattern matching)
+                    import re
+                    entry_match = re.search(r'入场[：:]\s*\$?([\d.]+)', response_text)
+                    target_match = re.search(r'目标[：:]\s*\$?([\d.]+)', response_text)
+                    stop_match = re.search(r'止损[：:]\s*\$?([\d.]+)', response_text)
+                    strategy_match = re.search(r'策略[：:]\s*([^\n]+)', response_text)
+                    
+                    if entry_match:
+                        rec_data = {
+                            'entry_price': float(entry_match.group(1)),
+                            'target_price': float(target_match.group(1)) if target_match else None,
+                            'stop_loss': float(stop_match.group(1)) if stop_match else None,
+                            'strategy': strategy_match.group(1).strip() if strategy_match else 'AI推荐',
+                            'rsi': stock_data[symbol]['rsi'],
+                            'volume_ratio': stock_data[symbol]['volume_ratio'],
+                            'ema_setup': 'bullish' if stock_data[symbol]['current_price'] > stock_data[symbol]['ema_9'] else 'bearish'
+                        }
+                        
+                        # Log this recommendation
+                        log_ai_recommendation(symbol, rec_data)
+                except Exception as e:
+                    print(f"⚠️ 无法提取推荐数据: {e}")
+        
+        # Build response
+        if stock_data_context:
+            data_source_text = "\n".join(data_sources)
+            prefix = f"🧠 <b>AI 交易分析</b>\n\n<b>📡 数据来源:</b>\n{data_source_text}\n\n"
+            
+            # Add quick action buttons for stock analysis
+            keyboard = []
+            for symbol in stock_data.keys():
+                keyboard.append([
+                    InlineKeyboardButton(f"买入 {symbol}", callback_data=f"buy_{symbol}"),
+                    InlineKeyboardButton(f"观察 {symbol}", callback_data=f"watch_{symbol}")
+                ])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+        else:
+            prefix = "🤖 <b>GEEWONI AI</b>\n\n"
+            reply_markup = None
+        
+        await update.message.reply_text(
+            f"{prefix}{response_text}\n\n"
+            f"⚙️ AI 使用: {ai_usage_today}/{daily_limit}",
+            parse_mode='HTML',
+            reply_markup=reply_markup
+        )
+        
+        print(f"✅ 回复已发送。今日总调用: {ai_usage_today}")
+        
+    except Exception as e:
+        print(f"❌ OpenAI API 错误: {e}")
+        await update.message.reply_text(f"❌ AI 错误: {str(e)}")
+
+# Button callback handler
+async def button_callback(update: Update, context):
+    query = update.callback_query
+    await query.answer()
+    
+    action, symbol = query.data.split('_')
+    
+    if action == 'buy':
+        await query.message.reply_text(
+            f"💰 <b>买入 {symbol}</b>\n\n请输入:\n格式: buy {symbol} 价格 数量 策略\n\n例子: buy {symbol} 145.50 10 EMA Crossover",
+            parse_mode='HTML'
+        )
+    elif action == 'watch':
+        if symbol not in config['priority']:
+            config['priority'].append(symbol)
+            save_config(config)
+        await query.message.reply_text(f"👀 已添加 {symbol} 到观察列表")
+    elif action == 'sell':
+        await query.message.reply_text(
+            f"💵 <b>卖出 {symbol}</b>\n\n请输入:\n格式: sell {symbol} 价格\n\n例子: sell {symbol} 150.25",
+            parse_mode='HTML'
+        )
+
+# Process buy/sell commands
+async def process_trade(update: Update, context):
+    text = update.message.text.strip().lower()
+    
+    # Buy format: buy SYMBOL price quantity strategy
+    if text.startswith('buy '):
+        parts = text.split()
+        if len(parts) < 4:
+            await update.message.reply_text("❌ 格式: buy SYMBOL 价格 数量 策略\n例: buy NVDA 145.50 10 EMA Crossover")
+            return
+        
+        symbol = parts[1].upper()
         try:
-            ai_usage_today += 1
-            config['ai_usage'] = ai_usage_today
+            price = float(parts[2])
+            quantity = int(parts[3])
+            strategy = ' '.join(parts[4:]) if len(parts) > 4 else 'Manual'
+            
+            trade = {
+                'id': datetime.now().strftime('%Y%m%d%H%M%S'),
+                'type': 'buy',
+                'symbol': symbol,
+                'entry_price': price,
+                'quantity': quantity,
+                'strategy': strategy,
+                'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'status': 'open'
+            }
+            
+            save_trade(trade)
+            
+            # Check if this follows an AI recommendation
+            followed = mark_recommendation_followed(symbol, price)
+            
+            keyboard = [[
+                InlineKeyboardButton(f"卖出 {symbol}", callback_data=f"sell_{symbol}")
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            follow_msg = "\n🤖 <b>跟随 AI 推荐</b>" if followed else ""
+            
+            await update.message.reply_text(
+                f"✅ <b>买入成功</b>{follow_msg}\n\n"
+                f"股票: {symbol}\n"
+                f"价格: ${price:.2f}\n"
+                f"数量: {quantity}\n"
+                f"策略: {strategy}\n"
+                f"总额: ${price * quantity:.2f}",
+                parse_mode='HTML',
+                reply_markup=reply_markup
+            )
+        except ValueError:
+            await update.message.reply_text("❌ 价格和数量必须是数字")
+    
+    # Sell format: sell SYMBOL price
+    elif text.startswith('sell '):
+        parts = text.split()
+        if len(parts) < 3:
+            await update.message.reply_text("❌ 格式: sell SYMBOL 价格\n例: sell NVDA 150.25")
+            return
+        
+        symbol = parts[1].upper()
+        try:
+            sell_price = float(parts[2])
+            
+            # Find open trade
+            trades = load_trades()
+            open_trade = None
+            for trade in reversed(trades):
+                if trade['symbol'] == symbol and trade['status'] == 'open':
+                    open_trade = trade
+                    break
+            
+            if not open_trade:
+                await update.message.reply_text(f"❌ 没有找到 {symbol} 的开仓交易")
+                return
+            
+            # Calculate profit
+            profit = (sell_price - open_trade['entry_price']) * open_trade['quantity']
+            profit_pct = ((sell_price - open_trade['entry_price']) / open_trade['entry_price']) * 100
+            
+            # Update trade
+            open_trade['exit_price'] = sell_price
+            open_trade['profit'] = profit
+            open_trade['profit_pct'] = profit_pct
+            open_trade['status'] = 'closed'
+            open_trade['exit_date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Save
+            TRADES_FILE.write_text(json.dumps(trades, indent=2))
+            
+            # Update strategy performance
+            update_strategy_performance(open_trade['strategy'], profit)
+            
+            # Update AI learning if this was a followed recommendation
+            update_recommendation_outcome(symbol, sell_price, profit)
+            
+            # Update config profit
+            config['weekly_profit'] += profit
             save_config(config)
             
-            data_context = []
-            for symbol, data in live_data.items():
-                data_context.append(
-                    f"{symbol}: ${data['price']:.2f} {data['change_pct']:+.1f}% | "
-                    f"Trend: {data['trend']} | RSI: {data['rsi']:.0f}"
-                )
+            # Calculate win rate
+            win_rate, wins, total = calculate_win_rate()
             
-            system_prompt = f"""GEEWONI AI TRADING BRAIN - LIVE DATA
-{chr(10).join(data_context) if data_context else 'No live data'}
-
-P&L: ${config['weekly_profit']}/{config['weekly_goal']}
-PRIORITIES: {', '.join(config['priority'])}
-
-Entry: BUY above resistance + EMA bull + RSI 40-70
-Exit: SELL at resistance or EMA bear
-Risk: 2-5% stop loss
-
-FORMAT: SYMBOL: $price | ENTRY: $XXX→$YYY | STOP: $ZZZ"""
-
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "system", "content": system_prompt},
-                         {"role": "user", "content": user_query}],
-                max_tokens=200,
-                temperature=0.2
-            )
+            emoji = "✅" if profit > 0 else "❌"
             
-            update.message.reply_text(
-                f"🧠 <b>AI TRADING SIGNAL</b>\n\n"
-                f"{response.choices[0].message.content}\n\n"
-                f"⚙️ Usage: {ai_usage_today}/{daily_limit}",
+            await update.message.reply_text(
+                f"{emoji} <b>平仓成功</b>\n\n"
+                f"股票: {symbol}\n"
+                f"入场: ${open_trade['entry_price']:.2f}\n"
+                f"出场: ${sell_price:.2f}\n"
+                f"盈亏: ${profit:+.2f} ({profit_pct:+.2f}%)\n"
+                f"策略: {open_trade['strategy']}\n\n"
+                f"📊 <b>总体表现</b>\n"
+                f"胜率: {win_rate:.1f}% ({wins}/{total})\n"
+                f"本周盈亏: ${config['weekly_profit']:,.2f}",
                 parse_mode='HTML'
             )
-            return
+        except ValueError:
+            await update.message.reply_text("❌ 价格必须是数字")
+
+async def start(update: Update, context):
+    win_rate, wins, total = calculate_win_rate()
+    progress = config["weekly_profit"] / config["weekly_goal"] * 100
+    ai_status = "🟢 在线" if client else "⚠️ 添加 OPENAI_KEY"
+    
+    await update.message.reply_text(
+        f"🧠 <b>GEEWONI AI 交易大脑 v7.0</b>\n\n"
+        f"💰 本周: ${config['weekly_profit']:,.2f}/{config['weekly_goal']:,} ({progress:.0f}%)\n"
+        f"📊 胜率: {win_rate:.1f}% ({wins}/{total})\n"
+        f"{ai_status} | 使用: {ai_usage_today}/{daily_limit}\n\n"
+        f"<b>📈 股票分析:</b> 'NVDA 入场点?'\n"
+        f"<b>📋 交易:</b> buy NVDA 145.50 10 EMA策略\n"
+        f"<b>💬 通用:</b> 任何问题都可以问!\n"
+        f"<b>🧠 AI 学习:</b> 从你的交易中学习优化!\n\n"
+        f"<b>命令:</b>\n"
+        f"/stats - 交易统计\n"
+        f"/morning - 早盘摘要\n"
+        f"/learn - AI 学习报告 🆕\n"
+        f"/usage - AI 使用量\n"
+        f"/strategies - 策略表现\n"
+        f"/positions - 持仓查看",
+        parse_mode='HTML'
+    )
+
+async def stats(update: Update, context):
+    win_rate, wins, total = calculate_win_rate()
+    progress = config["weekly_profit"] / config["weekly_goal"] * 100
+    
+    await update.message.reply_text(
+        f"📊 <b>交易统计</b>\n\n"
+        f"💰 本周盈亏: ${int(config['weekly_profit']):,}/{config['weekly_goal']:,} ({progress:.0f}%)\n"
+        f"📈 胜率: {win_rate:.1f}%\n"
+        f"✅ 盈利: {wins}\n"
+        f"❌ 亏损: {total - wins}\n"
+        f"📝 总交易: {total}\n"
+        f"⭐ 观察: {', '.join(config['priority'][:5])}",
+        parse_mode='HTML'
+    )
+
+async def usage_command(update: Update, context):
+    percentage = (ai_usage_today / daily_limit) * 100
+    remaining = daily_limit - ai_usage_today
+    
+    await update.message.reply_text(
+        f"🤖 <b>AI 使用量</b>\n\n"
+        f"📊 已用: {ai_usage_today}/{daily_limit} ({percentage:.1f}%)\n"
+        f"✅ 剩余: {remaining}\n"
+        f"🔄 重置: 每日\n\n"
+        f"💡 每次对话 = 1 次调用",
+        parse_mode='HTML'
+    )
+
+async def strategies_command(update: Update, context):
+    strategies = load_strategies()
+    
+    response = "📋 <b>策略表现</b>\n\n"
+    
+    # Sort by profit
+    sorted_strategies = sorted(strategies.items(), key=lambda x: x[1]['profit'], reverse=True)
+    
+    for name, data in sorted_strategies:
+        total = data['wins'] + data['losses']
+        win_rate = (data['wins'] / total * 100) if total > 0 else 0
+        response += f"<b>{name}</b>\n"
+        response += f"胜率: {win_rate:.1f}% ({data['wins']}/{total})\n"
+        response += f"盈亏: ${data['profit']:+.2f}\n\n"
+    
+    await update.message.reply_text(response, parse_mode='HTML')
+
+async def learn_command(update: Update, context):
+    """Show what AI has learned"""
+    summary = get_ai_insights_summary()
+    await update.message.reply_text(summary, parse_mode='HTML')
+
+async def positions_command(update: Update, context):
+    trades = load_trades()
+    open_trades = [t for t in trades if t['status'] == 'open']
+    
+    if not open_trades:
+        await update.message.reply_text("📭 当前无持仓")
+        return
+    
+    response = "📋 <b>当前持仓</b>\n\n"
+    
+    for trade in open_trades:
+        # Get current price
+        data = get_extended_stock_data(trade['symbol'])
+        if data:
+            current_price = data['current_price']
+            unrealized = (current_price - trade['entry_price']) * trade['quantity']
+            unrealized_pct = ((current_price - trade['entry_price']) / trade['entry_price']) * 100
             
-        except Exception as e:
-            print(f"AI Error: {e}")
+            emoji = "🟢" if unrealized > 0 else "🔴"
+            
+            response += f"{emoji} <b>{trade['symbol']}</b>\n"
+            response += f"入场: ${trade['entry_price']:.2f}\n"
+            response += f"当前: ${current_price:.2f}\n"
+            response += f"盈亏: ${unrealized:+.2f} ({unrealized_pct:+.2f}%)\n"
+            response += f"策略: {trade['strategy']}\n\n"
+            
+            # Add sell button
+            keyboard = [[InlineKeyboardButton(f"卖出 {trade['symbol']}", callback_data=f"sell_{trade['symbol']}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
     
-    if live_data:
-        response = "📊 <b>LIVE TECHNICALS</b>\n\n"
-        for symbol, data in live_data.items():
-            trend_emoji = "🟢" if data['trend'] == 'BULL' else "🔴"
-            response += f"{trend_emoji} <b>{symbol}</b>\n${data['price']:.2f} {data['change_pct']:+.1f}%\nRSI: {data['rsi']:.0f}\n\n"
-        update.message.reply_text(response, parse_mode='HTML')
-    else:
-        update.message.reply_text("💬 Ask: 'NVDA entry point?'")
+    await update.message.reply_text(response, parse_mode='HTML', reply_markup=reply_markup if open_trades else None)
 
-def start(update, context):  # ← NO ContextTypes
-    progress = config["weekly_profit"] / config["weekly_goal"] * 100
-    ai_status = "🟢 LIVE" if client else "⚠️ ADD OPENAI_KEY"
+async def morning_summary(update: Update, context):
+    """Generate morning market summary"""
+    if not client:
+        await update.message.reply_text("⚠️ AI 不可用")
+        return
     
-    update.message.reply_text(
-        f"🧠 <b>GEEWONI AI TRADING BRAIN v6.2</b>\n\n"
-        f"💰 P&L: ${config['weekly_profit']:,}/{config['weekly_goal']:,} ({progress:.0f}%)\n"
-        f"{ai_status} | Usage: {ai_usage_today}/{daily_limit}\n\n"
-        f"<b>🚀 CHAT:</b> 'NVDA entry point?' 'TSLA support?'",
-        parse_mode='HTML'
-    )
+    global ai_usage_today
+    if ai_usage_today >= daily_limit:
+        await update.message.reply_text(f"⚠️ 今日额度已用完")
+        return
+    
+    await update.message.reply_text("⏳ 生成早盘摘要中...")
+    
+    # Get data for priority stocks
+    stock_data = {}
+    for symbol in config['priority'][:7]:  # Top 7 stocks
+        data = get_extended_stock_data(symbol)
+        if data:
+            stock_data[symbol] = data
+    
+    if not stock_data:
+        await update.message.reply_text("❌ 无法获取市场数据")
+        return
+    
+    # Build context
+    context_text = "📊 今日股票数据:\n"
+    for sym, data in stock_data.items():
+        context_text += f"""
+{sym}: ${data['current_price']:.2f} ({data['price_change_pct']:+.2f}%)
+趋势: {data['trend']} | RSI: {data['rsi']:.0f}
+成交量: {data['volume_ratio']:.1f}x
+"""
+    
+    try:
+        ai_usage_today += 1
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": f"""你是专业交易分析师。基于以下数据生成简短的早盘摘要。
 
-def stats(update, context):
-    progress = config["weekly_profit"] / config["weekly_goal"] * 100
-    update.message.reply_text(
-        f"📊 <b>EMPIRE DASHBOARD</b>\n"
-        f"💰 ${int(config['weekly_profit']):,}/{config['weekly_goal']:,} ({progress:.0f}%)\n"
-        f"⭐ Priorities: {', '.join(config['priority'])}",
-        parse_mode='HTML'
-    )
+{context_text}
 
-def win(update, context):
+要求:
+1. 找出 3 只最值得关注的股票 (基于趋势、成交量、RSI)
+2. 说明为什么值得关注 (1-2句)
+3. 给出简单的操作建议
+4. 总结今日市场情绪
+
+格式:
+🌅 早盘摘要 (日期)
+
+🔥 今日重点:
+1. [股票] - [原因] - [建议]
+2. [股票] - [原因] - [建议]
+3. [股票] - [原因] - [建议]
+
+💡 市场情绪: [一句话总结]
+
+简短专业，中文回复。"""},
+                {"role": "user", "content": "生成今日早盘摘要"}
+            ],
+            max_tokens=400,
+            temperature=0.3
+        )
+        
+        await update.message.reply_text(
+            f"{response.choices[0].message.content}\n\n"
+            f"⚙️ AI 使用: {ai_usage_today}/{daily_limit}",
+            parse_mode='HTML'
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ 错误: {e}")
+
+async def win(update: Update, context):
     config['weekly_profit'] += 250
     save_config(config)
-    update.message.reply_text(f"✅ +$250 WIN!\n💰 ${config['weekly_profit']:,}/{config['weekly_goal']:,}")
+    await update.message.reply_text(f"✅ +$250 盈利!\n💰 ${config['weekly_profit']:,}/{config['weekly_goal']:,}")
 
-def loss(update, context):
+async def loss(update: Update, context):
     config['weekly_profit'] = max(0, config['weekly_profit'] - 100)
     save_config(config)
-    update.message.reply_text(f"❌ -$100 LOSS\n💰 ${config['weekly_profit']:,}/{config['weekly_goal']:,}")
+    await update.message.reply_text(f"❌ -$100 亏损\n💰 ${config['weekly_profit']:,}/{config['weekly_goal']:,}")
 
-def main():
-    print("🧠 GEEWONI AI TRADING BRAIN v6.2")
+async def main():
+    print("🧠 GEEWONI AI 交易大脑 v7.0")
     
     if not TELEGRAM_TOKEN:
-        print("❌ SET TELEGRAM_TOKEN!")
-        return
-    if not OPENAI_KEY:
-        print("⚠️ ADD OPENAI_KEY!")
+        print("❌ 设置 TELEGRAM_TOKEN!")
         return
     
-    print("✅ gpt-4o-mini LIVE")
+    print("✅ 初始化中...")
     
-    updater = Updater(token=TELEGRAM_TOKEN, use_context=True)  # ← FIXED
-    dispatcher = updater.dispatcher
+    # Create application
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("stats", stats))
-    dispatcher.add_handler(CommandHandler("win", win))
-    dispatcher.add_handler(CommandHandler("loss", loss))
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, ai_trading_brain))
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CommandHandler("usage", usage_command))
+    application.add_handler(CommandHandler("strategies", strategies_command))
+    application.add_handler(CommandHandler("learn", learn_command))  # AI Learning
+    application.add_handler(CommandHandler("positions", positions_command))
+    application.add_handler(CommandHandler("morning", morning_summary))
+    application.add_handler(CommandHandler("win", win))
+    application.add_handler(CommandHandler("loss", loss))
+    application.add_handler(CallbackQueryHandler(button_callback))
     
-    print("🚀 GEEWONI AI v6.2 LIVE!")
-    updater.start_polling(clean=True)
-    updater.idle()
+    # Route messages to either trade processing or AI brain
+    async def route_message(update: Update, context):
+        text = update.message.text.strip().lower()
+        if text.startswith('buy ') or text.startswith('sell '):
+            await process_trade(update, context)
+        else:
+            await ai_brain(update, context)
+    
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, route_message))
+    
+    print("🚀 GEEWONI AI v7.0 启动!")
+    
+    # Initialize and start polling
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(drop_pending_updates=True)
+    
+    # Keep running
+    try:
+        await asyncio.Event().wait()
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n🛑 Bot 已停止")
