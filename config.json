@@ -1,0 +1,12 @@
+{
+    "watchlist": ["NVDA", "RKLB", "SOFI", "PLTR", "OKLO", "BMNR"],
+    "priority": ["NVDA", "OKLO", "BMNR", "RKLB", "SOFI", "PLTR"],
+    "alert_pct": 3.0,
+    "alert_header": "🚨 <b>GEEWONI US STOCKS ({count})</b> | {time}",
+    "alert_format": "🚨 {symbol} {pct:+.1f}%\n💰 ${price:.2f}",
+    "win_amount": 250,
+    "loss_amount": 100,
+    "weekly_goal": 1000,
+    "weekly_profit": 0
+  }
+  
