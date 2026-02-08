@@ -12,6 +12,7 @@ numpy==1.26.4
 openai==1.51.2
 pytz==2024.1
 tiktoken==0.5.1
+nest_asyncio==1.6.0
 
 # 🆕 Scheduling & Automation
 apscheduler==3.10.4

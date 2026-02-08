@@ -12,6 +12,8 @@ from openai import OpenAI
 from datetime import datetime, timedelta
 import asyncio
 import pytz
+import nest_asyncio
+nest_asyncio.apply()  # 🔥 FIXES EVENT LOOP IN DOCKER
 
 # 🆕 Import SkillsetManager
 try:
@@ -1194,53 +1196,68 @@ async def loss(update: Update, context):
     save_config(config)
     await update.message.reply_text(f"❌ -$100 亏损\n💰 ${config['weekly_profit']:,}/{config['weekly_goal']:,}")
 
+
+# 🔥 DEFINE route_message FIRST (outside main)
+async def route_message(update: Update, context):
+    """Route buy/sell to trade processor, else to AI"""
+    if not update.message or not update.message.text:
+        return
+        
+    text = update.message.text.strip().lower()
+    if text.startswith('buy ') or text.startswith('sell '):
+        await process_trade(update, context)
+    else:
+        await ai_brain(update, context)
+
 async def main():
-    print("🧠 GEEWONI AI 交易大脑 v7.1")
+    print("🧠 GEEWONI AI v7.1 - Production Ready")
     
     if not TELEGRAM_TOKEN:
-        print("❌ 设置 TELEGRAM_TOKEN!")
+        print("❌ TELEGRAM_TOKEN missing!")
         return
     
-    print("✅ 初始化中...")
+    print("🔄 Initializing...")
     
-    # Create application
+    # Single app instance
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # 🔥 CRITICAL - Fix multiple instances
-    await application.bot.delete_webhook(drop_pending_updates=True)
-    print("✅ Old webhooks + pending updates cleared!")
+    # Kill old bots/conflicts
+    try:
+        await application.bot.delete_webhook(drop_pending_updates=True)
+        print("✅ Cleared old webhooks + pending updates")
+    except:
+        print("⚠️ No old webhooks found (OK)")
     
-    # Add handlers (REMOVE DUPLICATES)
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("stats", stats))
-    application.add_handler(CommandHandler("usage", usage_command))
-    application.add_handler(CommandHandler("strategies", strategies_command))
-    application.add_handler(CommandHandler("learn", learn_command))
-    application.add_handler(CommandHandler("skills", skills_command))
-    application.add_handler(CommandHandler("skill", skill_detail_command))
-    application.add_handler(CommandHandler("positions", positions_command))
-    application.add_handler(CommandHandler("morning", morning_summary))
-    application.add_handler(CommandHandler("win", win))
-    application.add_handler(CommandHandler("loss", loss))
-    application.add_handler(CallbackQueryHandler(button_callback))
+    # Clean handlers list - NO DUPLICATES
+    handlers = [
+        CommandHandler("start", start),
+        CommandHandler("stats", stats),
+        CommandHandler("usage", usage_command),
+        CommandHandler("strategies", strategies_command),
+        CommandHandler("learn", learn_command),
+        CommandHandler("skills", skills_command),
+        CommandHandler("skill", skill_detail_command),
+        CommandHandler("positions", positions_command),
+        CommandHandler("morning", morning_summary),
+        CommandHandler("win", win),
+        CommandHandler("loss", loss),
+        CallbackQueryHandler(button_callback),
+        MessageHandler(filters.TEXT & ~filters.COMMAND, route_message)
+    ]
     
-    # Route messages
-    async def route_message(update: Update, context):
-        text = update.message.text.strip().lower()
-        if text.startswith('buy ') or text.startswith('sell '):
-            await process_trade(update, context)
-        else:
-            await ai_brain(update, context)
+    # Add handlers
+    for handler in handlers:
+        application.add_handler(handler)
     
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, route_message))
+    print("🚀 GEEWONI LIVE - Handling messages...")
     
-    print("🚀 GEEWONI AI v7.1 SINGLE INSTANCE LIVE!")
-    
-    # 🔥 NEW SIMPLE POLLING - No conflicts
+    # 🔥 ONE LINE - Perfect for Windows/Docker
     await application.run_polling(drop_pending_updates=True)
 
-if __name__ == "__main__":
+
+# 🔥 Run WITHOUT nest_asyncio
+if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n🛑 Bot 已停止")
+        print("\n👋 Bot stopped by user")
