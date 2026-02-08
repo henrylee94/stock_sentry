@@ -483,9 +483,9 @@ async def ai_brain(update: Update, context):
     if not update.message or not update.message.text:
         return
     
-   if not client:
+    if not client:  # 4 spaces
         # 更详细的错误信息
-        await update.message.reply_text(
+        await update.message.reply_text(  # 8 spaces
             f"⚠️ AI 暂时不可用\n"
             f"调试信息:\n"
             f"OPENAI_KEY: {'找到' if OPENAI_KEY else '未找到'}\n"

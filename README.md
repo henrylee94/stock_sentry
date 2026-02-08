@@ -116,7 +116,7 @@ skills/
   "difficulty": "难度",
   "timeframe": ["时间周期"],
   "best_for": ["最佳使用场景"],
-  
+
   "rules": {
     "entry_conditions": ["入场条件"],
     "exit_conditions": ["出场条件"],
@@ -125,11 +125,11 @@ skills/
     "position_size": "仓位大小",
     "max_positions": "最大持仓数"
   },
-  
+
   "parameters": {
     // 可调参数
   },
-  
+
   "performance": {
     // 实战表现追踪
     "total_trades": 0,
@@ -139,11 +139,11 @@ skills/
     "profit_factor": 0.0,
     "total_pnl": 0.0
   },
-  
+
   "learned_optimizations": {
     // AI 学习到的最佳参数
   },
-  
+
   "notes": "使用注意事项"
 }
 ```
@@ -151,21 +151,25 @@ skills/
 ## 🎓 学习路径建议
 
 ### 第1周: 基础 (必学 ⭐⭐⭐)
+
 1. Position Sizing
-2. Stop Loss Rules  
+2. Stop Loss Rules
 3. Trend Following
 
 ### 第2-3周: 技术分析
+
 4. EMA Crossover
 5. Volume Breakout
 6. Support Resistance
 
 ### 第4-5周: 进阶
+
 7. Mean Reversion
 8. RSI Divergence
 9. Portfolio Balance
 
 ### 第6周+: 高级
+
 10. Catalyst Trading
 11. Earnings Play
 12. Sector Rotation
@@ -198,6 +202,7 @@ catalyst_trading.json
 ### 2. 组合策略使用
 
 **推荐组合:**
+
 - EMA Crossover + Position Sizing + Stop Loss
 - Support Resistance + Mean Reversion + Portfolio Balance
 - Catalyst Trading + Volatility Trading + Tight Stops
@@ -205,16 +210,19 @@ catalyst_trading.json
 ### 3. 根据账户大小选择
 
 **小账户 (<$10k):**
+
 - 专注 2-3 个策略
 - 使用技术分析策略
 - 避免复杂的期权策略
 
 **中账户 ($10k-$50k):**
+
 - 5-6 个策略
 - 加入基本面分析
 - 开始组合管理
 
 **大账户 (>$50k):**
+
 - 全部 12 个策略
 - 多策略组合
 - 包括期权和高级策略
@@ -234,7 +242,7 @@ AI 会自动追踪每个策略的表现:
     "avg_loss_pct": 1.8,
     "profit_factor": 2.14,
     "sharpe_ratio": 1.8,
-    "total_pnl": 2450.00
+    "total_pnl": 2450.0
   }
 }
 ```
@@ -266,6 +274,7 @@ AI 会学习并优化每个策略:
 ## 🔄 策略进化
 
 随着交易数据积累:
+
 1. AI 自动优化参数
 2. 淘汰表现差的策略
 3. 发现新的成功模式
@@ -274,6 +283,7 @@ AI 会学习并优化每个策略:
 ## 📚 进一步学习
 
 每个策略 JSON 文件里都有:
+
 - 详细规则说明
 - 实战例子
 - 常见错误
@@ -286,3 +296,5 @@ AI 会学习并优化每个策略:
 **Created:** 2025-02-07  
 **Version:** 1.0  
 **Total Skills:** 12
+
+## py -3.12 telegram_bot.py

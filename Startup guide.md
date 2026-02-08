@@ -3,6 +3,7 @@
 ## 📦 你需要的文件清单
 
 ### 核心文件（必须）：
+
 ```
 Geewoni-Sentry/
 ├── telegram_bot.py          ✅ 主 Bot
@@ -25,6 +26,7 @@ Geewoni-Sentry/
 ### Step 1: 更新 requirements.txt
 
 确保包含：
+
 ```txt
 python-telegram-bot==21.4
 yfinance==0.2.40
@@ -59,22 +61,23 @@ print(token_tracker.format_usage_display())  # 在控制台显示
 ```
 
 完整示例：
+
 ```python
 async def ai_brain(update: Update, context):
     # ... 现有代码 ...
-    
+
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[...],
         max_tokens=600,
         temperature=0.3
     )
-    
+
     response_text = response.choices[0].message.content
-    
+
     # 🆕 记录 Token 使用
     usage_info = token_tracker.log_request(user_query, response_text)
-    
+
     # 在回复中添加 Token 信息
     await update.message.reply_text(
         f"{response_text}\n\n"
@@ -94,7 +97,7 @@ async def ai_brain(update: Update, context):
 async def tokens_command(update: Update, context):
     """显示 Token 使用情况"""
     stats = token_tracker.get_statistics()
-    
+
     message = f"""📊 <b>Token 使用统计</b>
 
 <b>📅 今日</b>
@@ -114,7 +117,7 @@ async def tokens_command(update: Update, context):
 • 每次请求: {stats['avg_tokens_per_request']:.0f} tokens
 • 每次成本: ${stats['avg_cost_per_request']:.6f}
 """
-    
+
     await update.message.reply_text(message, parse_mode='HTML')
 
 # 在 main() 中注册命令
@@ -133,6 +136,7 @@ copy tradesniper_complete_with_tokens.py tradesniper.py
 ```
 
 特点：
+
 - ✅ 右上角实时显示 Token 使用
 - ✅ 专门的 Token Usage 标签页
 - ✅ 自动记录每次 AI 调用
@@ -159,6 +163,7 @@ st.sidebar.metric("Week Cost", f"${stats['weekly']['cost']:.4f}")
 ## 🚀 部署到 Zeabur
 
 ### 本地测试：
+
 ```bash
 # 测试 Bot
 py -3.12 telegram_bot.py
@@ -168,6 +173,7 @@ streamlit run tradesniper.py
 ```
 
 ### 推送到 GitHub：
+
 ```bash
 git add .
 git commit -m "Add Token tracking system"
@@ -175,6 +181,7 @@ git push
 ```
 
 ### Zeabur 自动部署：
+
 - ✅ 检测到更新
 - ✅ 自动重新部署
 - ✅ 新功能上线
@@ -184,6 +191,7 @@ git push
 ## 💰 Zeabur 成本优化
 
 ### 当前设置：
+
 ```
 Bot (24/7 运行):
 - 内存: ~150MB
@@ -199,6 +207,7 @@ Dashboard (按需):
 ```
 
 ### 优化技巧：
+
 1. **Dashboard 设置自动休眠**
    - Zeabur Dashboard → 你的服务 → Settings
    - 启用 "Auto Sleep"
@@ -217,6 +226,7 @@ Dashboard (按需):
 ## 📊 Token 使用建议
 
 ### 成本控制：
+
 ```
 gpt-4o-mini 定价：
 - Input: $0.15 / 1M tokens
@@ -232,6 +242,7 @@ gpt-4o-mini 定价：
 ```
 
 ### 每日限制建议：
+
 ```python
 # 在 telegram_bot.py 设置
 daily_limit = 1000  # 每天最多 1000 次请求
@@ -262,6 +273,7 @@ max_daily_tokens = 500_000  # 50万 tokens/天
 ## 🎯 快速命令参考
 
 ### Telegram Bot 命令：
+
 ```
 /start          # 开始
 /stats          # 交易统计
@@ -274,6 +286,7 @@ max_daily_tokens = 500_000  # 50万 tokens/天
 ```
 
 ### Web Dashboard：
+
 ```
 http://localhost:8501          # 本地
 https://你的域名.zeabur.app     # Zeabur
@@ -292,16 +305,21 @@ https://你的域名.zeabur.app     # Zeabur
 ## 🆘 常见问题
 
 ### Q: Token 追踪不工作？
+
 A: 确保：
+
 1. `token_tracker.py` 在项目根目录
 2. `telegram_bot.py` 正确导入
 3. 有写入权限创建 `token_usage.json`
 
 ### Q: 成本计算不准？
+
 A: Token 追踪使用估算，实际成本以 OpenAI 账单为准
 
 ### Q: Zeabur 超额了怎么办？
-A: 
+
+A:
+
 1. 暂时关闭 Dashboard（只保留 Bot）
 2. 减少 AI 调用频率
 3. 或升级到付费计划（$5/月）
@@ -311,6 +329,7 @@ A:
 ## 🎉 完成！
 
 现在你的系统有：
+
 - ✅ Telegram Bot（24/7）
 - ✅ Web Dashboard（按需）
 - ✅ 12个专业策略

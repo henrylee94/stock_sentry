@@ -3,9 +3,11 @@
 ## 📦 新增的3个核心功能
 
 ### 1️⃣ 定时推送系统 (`scheduled_push_system.py`)
+
 **自动在关键时间点推送信息**
 
 时间表（马来西亚时间）:
+
 - 09:00 AM - 今日新闻摘要
 - 09:15 PM - 美股开盘前交易计划
 - 11:00 PM - 盘中持仓更新
@@ -13,18 +15,22 @@
 - 每小时 - 重大新闻检查
 
 ### 2️⃣ 新闻系统 (`news_system.py`)
+
 **自动抓取、过滤、分析新闻**
 
 功能:
+
 - 从多个 RSS 源抓取新闻
 - AI 过滤重要新闻（只推送真正重要的）
 - 情绪分析（利好/利空）
 - 避免重复推送
 
 ### 3️⃣ 价格监控 (`price_monitor.py`)
+
 **实时监控并提醒**
 
 监控内容:
+
 - 大涨大跌 (>3%)
 - 成交量异常 (>2x)
 - RSI 超买超卖
@@ -82,6 +88,7 @@ app.run_polling()
 ```
 
 把获取到的 Chat ID 添加到 `.env`:
+
 ```
 TELEGRAM_CHAT_ID=你的chat_id
 ```
@@ -114,30 +121,30 @@ from skillset_manager import SkillsetManager
 
 async def start_all_systems():
     """启动所有系统"""
-    
+
     print("=" * 60)
     print("🚀 GEEWONI 完整交易系统启动中...")
     print("=" * 60)
-    
+
     # 配置
     telegram_token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     openai_key = os.getenv("OPENAI_KEY")
-    
+
     if not all([telegram_token, chat_id, openai_key]):
         print("❌ 缺少环境变量！")
         print("需要: TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, OPENAI_KEY")
         return
-    
+
     # 初始化
     client = OpenAI(api_key=openai_key)
     skills_manager = SkillsetManager("skills")
     watchlist = ['NVDA', 'PLTR', 'RKLB', 'SOFI', 'OKLO', 'MP']
-    
+
     # 1. 启动主 Bot
     print("\n1️⃣ 启动 Telegram Bot...")
     bot_task = asyncio.create_task(bot_main())
-    
+
     # 2. 启动定时推送系统
     print("2️⃣ 启动定时推送系统...")
     push_system = ScheduledPushSystem(
@@ -147,11 +154,11 @@ async def start_all_systems():
         client=client
     )
     await push_system.start()
-    
+
     # 3. 启动新闻系统（每小时检查）
     print("3️⃣ 启动新闻系统...")
     news_system = NewsSystem(client, watchlist)
-    
+
     async def news_loop():
         while True:
             try:
@@ -164,18 +171,18 @@ async def start_all_systems():
                     print(f"📰 推送 {len(important_news)} 条重要新闻")
             except Exception as e:
                 print(f"❌ 新闻系统错误: {e}")
-            
+
             await asyncio.sleep(3600)  # 1小时
-    
+
     news_task = asyncio.create_task(news_loop())
-    
+
     # 4. 启动价格监控
     print("4️⃣ 启动价格监控系统...")
     from telegram import Bot
     bot = Bot(token=telegram_token)
     monitor = PriceMonitor(bot, chat_id, watchlist, skills_manager)
     monitor_task = asyncio.create_task(monitor.start(interval=300))  # 5分钟
-    
+
     print("\n" + "=" * 60)
     print("✅ 所有系统已启动!")
     print("=" * 60)
@@ -185,7 +192,7 @@ async def start_all_systems():
     print("   • 新闻系统 - 每小时抓取重要新闻")
     print("   • 价格监控 - 每5分钟检查异常")
     print("\n💡 按 Ctrl+C 停止所有系统\n")
-    
+
     # 等待所有任务
     await asyncio.gather(bot_task, news_task, monitor_task)
 
@@ -255,16 +262,19 @@ py -3.12 price_monitor.py
 你的 `tradesniper.py` 和网站可以：
 
 ### 1. 显示实时数据
+
 - 当前持仓
 - 今日盈亏
 - 策略表现
 
 ### 2. 配置管理
+
 - 设置 watchlist
 - 调整监控规则
 - 配置推送时间
 
 ### 3. 历史回测
+
 - 测试策略
 - 优化参数
 - 查看图表
@@ -276,18 +286,23 @@ py -3.12 price_monitor.py
 ## 🆘 常见问题
 
 ### Q: Chat ID 在哪里？
+
 A: 运行 `get_chat_id.py`，然后发消息给 bot
 
 ### Q: 可以自定义推送时间吗？
+
 A: 可以！编辑 `scheduled_push_system.py` 的 CronTrigger
 
 ### Q: 如何添加更多新闻源？
+
 A: 编辑 `news_system.py` 的 `rss_feeds` 列表
 
 ### Q: 监控太频繁怎么办？
+
 A: 调整 `monitor.start(interval=300)` 的 interval
 
 ### Q: 如何部署到服务器24/7运行？
+
 A: 推荐用 Zeabur / Railway / Heroku
 
 ---
@@ -295,6 +310,7 @@ A: 推荐用 Zeabur / Railway / Heroku
 ## 🎉 完成！
 
 现在你有一个**完整的智能交易助手**:
+
 - ✅ AI 对话分析
 - ✅ 12个专业策略
 - ✅ 自动定时推送
