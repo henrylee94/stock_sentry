@@ -8,6 +8,7 @@ import yfinance as yf
 import json
 from pathlib import Path
 import os
+import httpx
 
 # Unset proxy env vars so OpenAI client does not get proxies= (avoids TypeError in some envs)
 for _k in list(os.environ.keys()):
