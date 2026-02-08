@@ -10,7 +10,39 @@
     "MP",
     "BMNR"
   ],
-  "ai_usage": 1,
+  "watchlist": [
+    "NVDA",
+    "RKLB",
+    "SOFI",
+    "PLTR",
+    "OKLO",
+    "MP"
+  ],
+  "ai_usage": 5,
   "language": "both",
-  "favorite_setups": []
+  "favorite_setups": [],
+  "alert_pct": 3.0,
+  "win_amount": 250,
+  "loss_amount": 100,
+  "push_times": {
+    "morning": "09:00",
+    "premarket": "21:00",
+    "close": "04:00"
+  },
+  "monitor_rules": {
+    "price_change": 3.0,
+    "volume_mult": 2.0,
+    "rsi_low": 30,
+    "rsi_high": 70
+  },
+  "enabled_strategies": [
+    "EMA Crossover",
+    "Volume Breakout",
+    "Support/Resistance"
+  ],
+  "risk": {
+    "max_position_pct": 5,
+    "stop_loss_pct": 2,
+    "max_daily_loss": 500
+  }
 }
