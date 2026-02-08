@@ -118,7 +118,7 @@ class ScheduledPushSystem:
             print("📋 生成交易计划...")
             
             # 获取 watchlist 股票数据
-            from get_extended_stock_data import get_extended_stock_data
+            from core.data_manager import get_extended_stock_data
             watchlist = ['NVDA', 'PLTR', 'RKLB', 'SOFI', 'OKLO', 'MP']
             
             stock_data_text = ""

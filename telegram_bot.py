@@ -8,6 +8,12 @@ import yfinance as yf
 import json
 from pathlib import Path
 import os
+
+# Unset proxy env vars so OpenAI client does not get proxies= (avoids TypeError in some envs)
+for _k in list(os.environ.keys()):
+    if "proxy" in _k.lower():
+        os.environ.pop(_k, None)
+
 from openai import OpenAI
 from datetime import datetime, timedelta
 import asyncio
@@ -15,6 +21,16 @@ import pytz
 import nest_asyncio
 nest_asyncio.apply()  # 🔥 FIXES EVENT LOOP IN DOCKER
 
+# Load .env first via python-dotenv (from script directory)
+_script_dir = Path(__file__).resolve().parent
+try:
+    from dotenv import load_dotenv
+    loaded = load_dotenv(_script_dir / ".env") or load_dotenv(Path(".env"))
+    if loaded:
+        print("✅ .env loaded (dotenv)")
+except Exception:
+    pass
+
 # 🆕 Import SkillsetManager
 try:
     from skillset_manager import SkillsetManager
@@ -23,44 +39,93 @@ except ImportError:
     print("⚠️ skillset_manager not found - Skills disabled")
     SKILLS_ENABLED = False
 
-
-# 🆕 Import SkillsetManager
+# 🆕 Phase 1: Intent Detector + Rules Engine + Data Manager
 try:
-    from skillset_manager import SkillsetManager
-    SKILLS_ENABLED = True
-except ImportError:
-    print("⚠️ skillset_manager not found - Skills disabled")
-    SKILLS_ENABLED = False
+    from intent_detector import IntentDetector
+    from rules_engine import RulesEngine
+    from core.data_manager import get_extended_stock_data as data_manager_get_stock
+    RULES_SYSTEM_ENABLED = True
+except ImportError as e:
+    print(f"⚠️ Rules/Data system not fully available: {e}")
+    RULES_SYSTEM_ENABLED = False
+    IntentDetector = None
+    RulesEngine = None
+    data_manager_get_stock = None
+
+# 🆕 Phase 2: Strategy Orchestrator (multi-agent consensus)
+try:
+    from strategy_orchestrator import StrategyOrchestrator
+    ORCHESTRATOR_ENABLED = True
+except ImportError as e:
+    print(f"⚠️ Strategy orchestrator not available: {e}")
+    ORCHESTRATOR_ENABLED = False
+    StrategyOrchestrator = None
 
 
 # READ .env FILE DIRECTLY
 def load_env_file():
-    """加载 .env 文件（仅本地开发时）"""
-    env_file = Path('.env')
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            if '=' in line and not line.startswith('#'):
-                key, value = line.split('=', 1)
-                os.environ[key.strip()] = value.strip()
-        print("✅ .env loaded from file")
-    else:
-        print("ℹ️ No .env file (using system environment variables)")
+    """Load .env: try script dir (where telegram_bot.py lives), then cwd, then parent."""
+    script_dir = Path(__file__).resolve().parent
+    for candidate in [script_dir / '.env', Path('.env'), script_dir.parent / '.env']:
+        if candidate.exists():
+            raw = candidate.read_text(encoding='utf-8', errors='ignore').lstrip('\ufeff')
+            for line in raw.splitlines():
+                line = line.strip().strip('\r')
+                if line and '=' in line and not line.startswith('#'):
+                    key, value = line.split('=', 1)
+                    key = key.strip().lstrip('\ufeff')
+                    value = value.strip().strip('\r').strip('"').strip("'")
+                    if key:
+                        os.environ[key] = value
+            print(f"✅ .env loaded from {candidate}")
+            return
+    print("ℹ️ No .env file (using system environment variables)")
 
 load_env_file()
 
 # 直接从环境变量读取（无论是 .env 还是系统变量）
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_KEY = os.getenv("OPENAI_KEY")
+# Prefer TELEGRAM_TOKEN_LOCAL when set (e.g. local dev) so prod (Zeabur) and local use different bots
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN_LOCAL") or os.getenv("TELEGRAM_TOKEN")
+OPENAI_KEY = os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY")
+
+# Fallback: read OPENAI_KEY directly from .env next to this script (if still missing)
+if not OPENAI_KEY and (_script_dir / ".env").exists():
+    raw = (_script_dir / ".env").read_text(encoding="utf-8", errors="ignore").lstrip("\ufeff")
+    for line in raw.splitlines():
+        line = line.strip().strip("\r")
+        if "=" not in line or line.startswith("#"):
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip().lstrip("\ufeff")
+        if key in ("OPENAI_KEY", "OPENAI_API_KEY"):
+            OPENAI_KEY = val.strip().strip('"').strip("'").strip("\r")
+            if OPENAI_KEY:
+                os.environ["OPENAI_KEY"] = OPENAI_KEY
+                print("✅ OPENAI_KEY loaded from .env file (fallback)")
+            break
 
 # 调试输出（移除实际的 key 值）
+_using_local = bool(os.getenv("TELEGRAM_TOKEN_LOCAL"))
 print(f"DEBUG - TELEGRAM_TOKEN: {'✅ Found' if TELEGRAM_TOKEN else '❌ Missing'}")
-print(f"DEBUG - OPENAI_KEY: {'✅ Found' if OPENAI_KEY else '❌ Missing'}")
 if OPENAI_KEY:
-    print(f"DEBUG - OPENAI_KEY starts with: {OPENAI_KEY[:10]}...")
+    print(f"DEBUG - OPENAI_KEY: ✅ Found (len={len(OPENAI_KEY)}, starts with {OPENAI_KEY[:12]}...)")
+else:
+    print(f"DEBUG - OPENAI_KEY: ❌ Missing (no OPENAI_KEY or OPENAI_API_KEY in .env)")
 
-CONFIG_FILE = Path("geewoni_config.json")
-TRADES_FILE = Path("trades_history.json")
-STRATEGIES_FILE = Path("strategies.json")
+from core import (
+    CONFIG_FILE,
+    TRADES_FILE,
+    STRATEGIES_FILE,
+    load_config,
+    save_config,
+    load_trades,
+    save_trades,
+    save_trade,
+    load_strategies,
+    save_strategies,
+    calculate_win_rate,
+    update_strategy_performance,
+)
 AI_LEARNING_FILE = Path("ai_learning.json")
 
 ai_usage_today = 0
@@ -90,11 +155,22 @@ if OPENAI_KEY:
         else:
             print(f"✅ API key 格式正确")
             
-            # 尝试初始化
+            # 尝试初始化（确保无 proxy 传入）
             print(f"🔄 初始化 OpenAI client...")
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key_clean)
-            
+            for _k in list(os.environ.keys()):
+                if "proxy" in _k.lower():
+                    os.environ.pop(_k, None)
+            try:
+                client = OpenAI(api_key=api_key_clean)
+            except TypeError as te:
+                if "proxies" in str(te):
+                    os.environ.pop("HTTP_PROXY", None)
+                    os.environ.pop("HTTPS_PROXY", None)
+                    os.environ.pop("http_proxy", None)
+                    os.environ.pop("https_proxy", None)
+                    client = OpenAI(api_key=api_key_clean)
+                else:
+                    raise
             print(f"✅ Client 创建成功")
             
             # 测试 API（可选，但会消耗 1 次调用）
@@ -120,109 +196,44 @@ print("="*60 + "\n")
 if client:
     print(f"✅ gpt-4o-mini LIVE")
 else:
-    print(f"⚠️ AI 不可用 - 请检查上面的错误信息")
-
-print(f"最终 client 状态: {'✅ 可用' if client else '❌ None'}\n")
-
-# 🆕 Initialize SkillsetManager
-skills_manager = None
-if SKILLS_ENABLED:
-    try:
-        skills_manager = SkillsetManager("skills")
-        print(skills_manager.get_skills_summary())
-    except Exception as e:
-        print(f"⚠️ Skills 加载失败: {e}")
-        skills_manager = None
-
+    if not OPENAI_KEY:
+        print(f"⚠️ OPENAI_KEY 未设置 - 在 .env 中设置 OPENAI_KEY=sk-...")
+    else:
+        print(f"⚠️ OpenAI 未连接 - 请向上滚动查看「❌ 初始化失败」或「格式不正确」的具体错误")
+print("")
 
 # 🆕 Initialize SkillsetManager
 skills_manager = None
 if SKILLS_ENABLED:
     try:
-        skills_manager = SkillsetManager("skills")
-        print(skills_manager.get_skills_summary())
+        skills_manager = SkillsetManager("skills", verbose=False)
     except Exception as e:
         print(f"⚠️ Skills 加载失败: {e}")
         skills_manager = None
 
+# 🆕 Phase 1: Intent Detector + Rules Engine (token optimization)
+intent_detector = None
+rules_engine = None
+if RULES_SYSTEM_ENABLED and IntentDetector and RulesEngine:
+    try:
+        intent_detector = IntentDetector()
+        rules_engine = RulesEngine('ai_rules', verbose=False)
+    except Exception as e:
+        print(f"⚠️ Rules system init failed: {e}")
+        intent_detector = None
+        rules_engine = None
+
+# 🆕 Phase 2: Strategy Orchestrator
+strategy_orchestrator = None
+if ORCHESTRATOR_ENABLED and StrategyOrchestrator:
+    try:
+        strategy_orchestrator = StrategyOrchestrator("skills")
+    except Exception as e:
+        print(f"⚠️ Orchestrator init failed: {e}")
+        strategy_orchestrator = None
 
 print(f"🧠 GEEWONI AI 交易大脑 v7.1 - with Skills")
-print(f"{'✅ gpt-4o-mini LIVE' if client else '⚠️ ADD OPENAI_KEY'}")
-
-# Config functions
-config = {}
-def load_config():
-    global config
-    if CONFIG_FILE.exists():
-        config = json.loads(CONFIG_FILE.read_text())
-    else:
-        config = {
-            'weekly_profit': 0,
-            'weekly_goal': 10000,
-            'priority': ['NVDA', 'PLTR', 'RKLB', 'SOFI', 'OKLO', 'MP', 'BMNR'],
-            'ai_usage': 0,
-            'language': 'both',  # both, chinese, english
-            'favorite_setups': []
-        }
-        save_config(config)
-
-def save_config(config):
-    CONFIG_FILE.write_text(json.dumps(config, indent=2))
-
-# Trade tracking
-def load_trades():
-    if TRADES_FILE.exists():
-        return json.loads(TRADES_FILE.read_text())
-    return []
-
-def save_trade(trade):
-    trades = load_trades()
-    trades.append(trade)
-    TRADES_FILE.write_text(json.dumps(trades, indent=2))
-
-def calculate_win_rate():
-    trades = load_trades()
-    if not trades:
-        return 0, 0, 0
-    
-    closed_trades = [t for t in trades if t.get('status') == 'closed']
-    if not closed_trades:
-        return 0, 0, 0
-    
-    wins = len([t for t in closed_trades if t.get('profit', 0) > 0])
-    total = len(closed_trades)
-    win_rate = (wins / total * 100) if total > 0 else 0
-    
-    total_profit = sum([t.get('profit', 0) for t in closed_trades])
-    
-    return win_rate, wins, total
-
-# Strategy tracking
-def load_strategies():
-    if STRATEGIES_FILE.exists():
-        return json.loads(STRATEGIES_FILE.read_text())
-    return {
-        'EMA Crossover': {'wins': 0, 'losses': 0, 'profit': 0},
-        'Volume Breakout': {'wins': 0, 'losses': 0, 'profit': 0},
-        'Support/Resistance': {'wins': 0, 'losses': 0, 'profit': 0},
-        'Reversal': {'wins': 0, 'losses': 0, 'profit': 0}
-    }
-
-def save_strategies(strategies):
-    STRATEGIES_FILE.write_text(json.dumps(strategies, indent=2))
-
-def update_strategy_performance(strategy_name, profit):
-    strategies = load_strategies()
-    if strategy_name not in strategies:
-        strategies[strategy_name] = {'wins': 0, 'losses': 0, 'profit': 0}
-    
-    if profit > 0:
-        strategies[strategy_name]['wins'] += 1
-    else:
-        strategies[strategy_name]['losses'] += 1
-    
-    strategies[strategy_name]['profit'] += profit
-    save_strategies(strategies)
+print(f"{'✅ gpt-4o-mini LIVE' if client else '⚠️ OpenAI 未连接 (检查 .env 中 OPENAI_KEY 或上方错误)'}")
 
 # AI Learning System
 def load_ai_learning():
@@ -385,96 +396,70 @@ def get_ai_insights_summary():
     
     return summary
 
-def get_extended_stock_data(symbol):
-    """Get comprehensive stock data including pre-market, historical for EMA/support analysis"""
+def _get_extended_stock_data_yahoo(symbol):
+    """Fallback: Yahoo Finance only (used when data_manager not available)"""
     try:
         import warnings
         warnings.filterwarnings('ignore')
-        
-        print(f"📡 Fetching {symbol}...")
+        print(f"📡 Fetching {symbol} (Yahoo)...")
         ticker = yf.Ticker(symbol)
-        
-        # Get 30 days for EMA
         hist_data = ticker.history(period="1mo", interval="1d")
-        
-        # Get today's intraday
         today_data = ticker.history(period="1d", interval="5m")
-        
-        if hist_data.empty:
-            print(f"❌ {symbol}: Yahoo Finance 无数据")
+        if hist_data.empty or len(hist_data) < 2:
             return None
-        
-        current_price = hist_data['Close'].iloc[-1]
-        
-        # Calculate EMAs
-        ema_9 = hist_data['Close'].ewm(span=9, adjust=False).mean().iloc[-1]
-        ema_21 = hist_data['Close'].ewm(span=21, adjust=False).mean().iloc[-1]
-        ema_50 = hist_data['Close'].ewm(span=21, adjust=False).mean().iloc[-1] if len(hist_data) >= 21 else None
-        
-        # RSI calculation
+        current_price = float(hist_data['Close'].iloc[-1])
+        ema_9 = float(hist_data['Close'].ewm(span=9, adjust=False).mean().iloc[-1])
+        ema_21 = float(hist_data['Close'].ewm(span=21, adjust=False).mean().iloc[-1])
+        ema_50 = float(hist_data['Close'].ewm(span=min(50, len(hist_data)), adjust=False).mean().iloc[-1]) if len(hist_data) >= 21 else None
         delta = hist_data['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
-        rsi = 100 - (100 / (1 + rs)).iloc[-1] if not rs.empty else 50
-        
-        # Support/Resistance
-        recent_high = hist_data['High'].tail(20).max()
-        recent_low = hist_data['Low'].tail(20).min()
-        week_high = hist_data['High'].tail(5).max()
-        week_low = hist_data['Low'].tail(5).min()
-        day_high = today_data['High'].max() if not today_data.empty else recent_high
-        day_low = today_data['Low'].min() if not today_data.empty else recent_low
-        
-        # Volume
-        avg_volume = hist_data['Volume'].tail(20).mean()
-        current_volume = hist_data['Volume'].iloc[-1]
+        rsi = float(100 - (100 / (1 + rs)).iloc[-1]) if not rs.empty else 50.0
+        recent_high = float(hist_data['High'].tail(20).max())
+        recent_low = float(hist_data['Low'].tail(20).min())
+        week_high = float(hist_data['High'].tail(5).max())
+        week_low = float(hist_data['Low'].tail(5).min())
+        day_high = float(today_data['High'].max()) if not today_data.empty else recent_high
+        day_low = float(today_data['Low'].min()) if not today_data.empty else recent_low
+        avg_volume = float(hist_data['Volume'].tail(20).mean()) or 1.0
+        current_volume = int(hist_data['Volume'].iloc[-1])
         volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
-        
-        # Trend determination
         if current_price > ema_9 > ema_21:
-            trend = "强势看涨"
+            trend, trend_en = "强势看涨", "bullish"
         elif current_price < ema_9 < ema_21:
-            trend = "强势看跌"
+            trend, trend_en = "强势看跌", "bearish"
         elif current_price > ema_9:
-            trend = "弱势看涨"
+            trend, trend_en = "弱势看涨", "bullish"
         else:
-            trend = "弱势看跌"
-        
-        last_update = hist_data.index[-1].strftime('%Y-%m-%d %H:%M')
-        
+            trend, trend_en = "弱势看跌", "bearish"
+        last_update = hist_data.index[-1].strftime('%Y-%m-%d %H:%M') if hasattr(hist_data.index[-1], 'strftime') else str(hist_data.index[-1])
+        price_change_pct = float(((current_price - hist_data['Close'].iloc[-2]) / hist_data['Close'].iloc[-2]) * 100)
         result = {
-            'symbol': symbol,
-            'current_price': float(current_price),
-            'ema_9': float(ema_9),
-            'ema_21': float(ema_21),
-            'ema_50': float(ema_50) if ema_50 else None,
-            'rsi': float(rsi),
-            'resistance': float(recent_high),
-            'support': float(recent_low),
-            'week_high': float(week_high),
-            'week_low': float(week_low),
-            'day_high': float(day_high),
-            'day_low': float(day_low),
-            'avg_volume': int(avg_volume),
-            'current_volume': int(current_volume),
-            'volume_ratio': float(volume_ratio),
-            'trend': trend,
-            'trend_en': 'bullish' if current_price > ema_9 else 'bearish',
-            'trend_en': 'bullish' if current_price > ema_9 else 'bearish',
-            'price_change_pct': float(((current_price - hist_data['Close'].iloc[-2]) / hist_data['Close'].iloc[-2]) * 100),
-            'last_update': last_update,
-            'data_source': 'Yahoo Finance'
+            'symbol': symbol.upper(), 'current_price': current_price, 'ema_9': ema_9, 'ema_21': ema_21,
+            'ema_50': ema_50, 'rsi': rsi, 'resistance': recent_high, 'support': recent_low,
+            'week_high': week_high, 'week_low': week_low, 'day_high': day_high, 'day_low': day_low,
+            'avg_volume': int(avg_volume), 'current_volume': current_volume, 'volume_ratio': volume_ratio,
+            'trend': trend, 'trend_en': trend_en, 'price_change_pct': price_change_pct,
+            'last_update': last_update, 'data_source': 'Yahoo Finance'
         }
-        
-        print(f"✅ {symbol}: ${current_price:.2f} | 趋势: {trend} | RSI: {rsi:.0f}")
+        print(f"✅ {symbol}: ${current_price:.2f} | {trend} | RSI: {rsi:.0f}")
         return result
-        
     except Exception as e:
         print(f"❌ {symbol} Error: {e}")
         return None
 
-load_config()
+
+def get_extended_stock_data(symbol):
+    """Get comprehensive stock data. Uses Data Manager (Finnhub + Yahoo) when available, else Yahoo only."""
+    if RULES_SYSTEM_ENABLED and data_manager_get_stock:
+        out = data_manager_get_stock(symbol.upper(), use_cache=True)
+        if out:
+            print(f"✅ {symbol}: ${out['current_price']:.2f} | {out['trend']} | RSI: {out['rsi']:.0f} | {out['data_source']}")
+        return out
+    return _get_extended_stock_data_yahoo(symbol)
+
+config = load_config()
 
 # AI Brain - handles everything
 async def ai_brain(update: Update, context):
@@ -499,188 +484,120 @@ async def ai_brain(update: Update, context):
     
     user_query = update.message.text.strip()
     
-    # Extract stock symbols
-    try:
-        symbols = re.findall(r'\b[A-Z]{2,5}\b', user_query)
-        stock_symbols = re.findall(r'\$\s*?([A-Z]{2,5})\b|\b([A-Z]{2,5})\b', user_query)
-        stock_symbols = [s[0] or s[1] for s in stock_symbols if s[0] or s[1]]
-        stock_symbols = list(set(stock_symbols))[:3]  # Dedupe + limit
-    except:
-        stock_symbols = []  # Safe fallback
+    # Phase 1: Intent detection (free, no API)
+    if intent_detector:
+        intent_data = intent_detector.detect(user_query)
+        stock_symbols = intent_data.get('symbols', [])
+        detected_intent = intent_data.get('intent', 'general')
+        print(f"🎯 Intent: {detected_intent} | Symbols: {stock_symbols}")
+    else:
+        try:
+            stock_symbols = list(set(re.findall(r'\b[A-Z]{2,5}\b', user_query)))[:3]
+        except Exception:
+            stock_symbols = []
+        detected_intent = 'stock_analysis' if stock_symbols else 'general'
 
-    # Fetch stock data if symbols detected (optional)
+    # Fetch stock data when needed
+    stock_data = {}
     stock_data_context = ""
     data_sources = []
     has_realtime_data = False
     
-    if stock_symbols:
-        print(f"🔍 检测到股票代码: {stock_symbols}")
-        stock_data = {}
-        
+    if (detected_intent == 'stock_analysis' or stock_symbols) and stock_symbols:
         for symbol in list(set(stock_symbols))[:3]:
             data = get_extended_stock_data(symbol)
             if data:
                 stock_data[symbol] = data
-                data_sources.append(f"✅ {symbol}: Yahoo Finance ({data['last_update']})")
+                data_sources.append(f"✅ {symbol}: {data.get('data_source', 'Yahoo')} ({data['last_update']})")
                 has_realtime_data = True
             else:
                 data_sources.append(f"⚠️ {symbol}: 无实时数据")
         
         if stock_data:
-            stock_data_context = "\n\n📊 实时市场数据 (Yahoo Finance):\n"
+            stock_data_context = "\n\n📊 Market data (for analysis - explain in words, do not dump raw):\n"
             for sym, data in stock_data.items():
-                stock_data_context += f"""
-{sym} (更新: {data['last_update']}):
-- 当前价格: ${data['current_price']:.2f} ({data['price_change_pct']:+.2f}%)
-- 趋势: {data['trend']}
-- RSI: {data['rsi']:.0f}
-- EMA9: ${data['ema_9']:.2f} | EMA21: ${data['ema_21']:.2f}
-- 今日高/低: ${data['day_high']:.2f} / ${data['day_low']:.2f}
-- 本周高/低: ${data['week_high']:.2f} / ${data['week_low']:.2f}
-- 支撑位: ${data['support']:.2f} | 阻力位: ${data['resistance']:.2f}
-- 成交量比率: {data['volume_ratio']:.2f}x
-"""
-            
-            # 🆕 添加技能推荐
+                stock_data_context += f"{sym}: ${data['current_price']:.2f} ({data['price_change_pct']:+.2f}%) | {data['trend']} | RSI {data['rsi']:.0f} | EMA9 ${data['ema_9']:.2f} EMA21 ${data['ema_21']:.2f} | support ${data['support']:.2f} resist ${data['resistance']:.2f} | vol {data['volume_ratio']:.2f}x\n"
+            # Phase 2: Agent consensus
+            if strategy_orchestrator:
+                try:
+                    first_sym = next(iter(stock_data))
+                    consensus = strategy_orchestrator.get_consensus_signal(stock_data[first_sym], first_sym)
+                    stock_data_context += f"\n🤖 Agent consensus: {consensus['summary']}\n"
+                    if consensus.get('top_signals'):
+                        stock_data_context += "Top strategies: " + ", ".join([f"{s['strategy']}({s['confidence']}%)" for s in consensus['top_signals']]) + "\n"
+                except Exception as e:
+                    print(f"Orchestrator consensus error: {e}")
             if skills_manager:
-                recommended_skills = []
-                for sym, data in stock_data.items():
-                    market_condition = {
-                        'trend': data.get('trend_en', 'neutral'),
-                        'rsi': data.get('rsi', 50),
-                        'volume_ratio': data.get('volume_ratio', 1.0),
-                        'volatility': 'normal'
-                    }
-                    skills = skills_manager.match_skill_to_market(market_condition)
-                    recommended_skills.extend(skills)
-                
-                # 去重
-                recommended_skills = list(set(recommended_skills))[:3]
-                if recommended_skills:
-                    stock_data_context += "\n\n📚 推荐策略:\n"
-                    for skill_name in recommended_skills:
-                        skill = skills_manager.get_skill(skill_name)
-                        if skill:
-                            stock_data_context += f"• {skill['name']} ({skill['difficulty']}): {skill['description']}\n"
-            
-            # 🆕 添加技能推荐
-            if skills_manager:
-                recommended_skills = []
-                for sym, data in stock_data.items():
-                    market_condition = {
-                        'trend': data.get('trend_en', 'neutral'),
-                        'rsi': data.get('rsi', 50),
-                        'volume_ratio': data.get('volume_ratio', 1.0),
-                        'volatility': 'normal'
-                    }
-                    skills = skills_manager.match_skill_to_market(market_condition)
-                    recommended_skills.extend(skills)
-                
-                # 去重
-                recommended_skills = list(set(recommended_skills))[:3]
-                if recommended_skills:
-                    try:
-                        stock_data_context += "\n\n📚 推荐策略:\n"
-                        for skill_name in recommended_skills:
-                            skill = skills_manager.get_skill(skill_name)
-                            if skill:
-                                stock_data_context += f"• {skill['name']} ({skill['difficulty']}): {skill['description']}\n"
-                    except Exception as e:
-                        print(f"Skills error: {e}")
-                        stock_data_context += "\n\n📚 推荐策略: 加载中...\n"
+                try:
+                    recommended_skills = []
+                    for sym, data in stock_data.items():
+                        skills = skills_manager.match_skill_to_market({
+                            'trend': data.get('trend_en', 'neutral'),
+                            'rsi': data.get('rsi', 50),
+                            'volume_ratio': data.get('volume_ratio', 1.0),
+                            'volatility': 'normal'
+                        })
+                        recommended_skills.extend(skills)
+                    recommended_skills = list(set(recommended_skills))[:3]
+                    if recommended_skills:
+                        stock_data_context += "\nRecommended strategies: " + ", ".join(recommended_skills) + "\n"
+                except Exception as e:
+                    print(f"Skills error: {e}")
         else:
-            # No real-time data available - AI uses knowledge
-            stock_data_context += f"""
-            {sym} (更新: {data['last_update']}):
-            - 当前价格: ${data['current_price']:.2f} ({data['price_change_pct']:+.2f}%)
-            - 趋势: {data['trend']}
-            - RSI: {data['rsi']:.0f}
-            - EMA9: ${data['ema_9']:.2f} | EMA21: ${data['ema_21']:.2f}
-            - 今日高/低: ${data['day_high']:.2f} / ${data['day_low']:.2f}
-            - 本周高/低: ${data['week_high']:.2f} / ${data['week_low']:.2f}
-            - 支撑位: ${data['support']:.2f} | 阻力位: ${data['resistance']:.2f}
-            - 成交量比率: {data['volume_ratio']:.2f}x            """
+            stock_data_context = "\n\n⚠️ No real-time data - use your market knowledge and news.\n"
+    
+    # Build compact context for other intents
+    if rules_engine and detected_intent == 'positions':
+        trades = load_trades()
+        open_pos = [t for t in trades if t.get('status') == 'open']
+        stock_data_context = "\nOpen positions: " + json.dumps(open_pos, ensure_ascii=False, default=str) + "\n"
+    elif rules_engine and detected_intent == 'performance':
+        win_rate, wins, total = calculate_win_rate()
+        stock_data_context = f"\nPerformance: {wins}/{total} wins ({win_rate:.1f}%), Weekly P&L: ${config['weekly_profit']}\n"
                 
-    # Call AI
+    # Call AI with rules-optimized prompt
     try:
         ai_usage_today += 1
         config['ai_usage'] = ai_usage_today
         save_config(config)
         
-        print(f"🤖 调用 OpenAI API (使用次数: {ai_usage_today}/{daily_limit})...")
+        print(f"🤖 OpenAI API (usage: {ai_usage_today}/{daily_limit})...")
         
-        # Get best performing strategies
         strategies = load_strategies()
         best_strategy = max(strategies.items(), key=lambda x: x[1]['profit']) if strategies else None
-        
-        # Get AI learning insights
         learning = load_ai_learning()
         insights = learning['learning_insights']
-        
-        # Build learning context
         learning_context = ""
-        if learning['total_recommendations'] > 0:
-            success_rate = (learning['recommendations_followed'] / learning['total_recommendations'] * 100) if learning['total_recommendations'] > 0 else 0
-            learning_context = f"""
-AI 学习数据:
-- 推荐成功率: {success_rate:.1f}%
-- 最佳 RSI 范围: {insights['best_rsi_range']['min']:.0f}-{insights['best_rsi_range']['max']:.0f}
-- 最佳成交量倍数: >{insights['best_volume_ratio']:.1f}x
-- 用户偏好策略: {', '.join(insights['preferred_strategies'][:3]) if insights['preferred_strategies'] else '无'}
-"""
+        if learning.get('total_recommendations', 0) > 0:
+            tr = learning['total_recommendations']
+            success_rate = (learning.get('recommendations_followed', 0) / tr * 100) if tr else 0
+            learning_context = f"AI learning: success rate {success_rate:.1f}%, best RSI {insights['best_rsi_range']['min']:.0f}-{insights['best_rsi_range']['max']:.0f}, preferred strategies: {', '.join(insights.get('preferred_strategies', [])[:2]) or 'any'}\n"
         
-        system_prompt = f"""你是 GEEWONI AI - 专业日内交易分析师和市场专家，能够从历史交易中学习和改进。
+        if rules_engine:
+            relevant_rules = rules_engine.get_relevant_rules(detected_intent)
+            watchlist_hint = ', '.join(config.get('priority', [])[:5]) if config.get('priority') else 'none'
+            system_prompt = f"""{relevant_rules}
 
-账户状态:
-- 本周盈亏: ${config['weekly_profit']}/{config['weekly_goal']}
-- 重点股票: {', '.join(config['priority'])}
-- 最佳策略: {best_strategy[0] if best_strategy else 'N/A'} (盈利: ${best_strategy[1]['profit']:.2f})
-
+Account: weekly P&L ${config['weekly_profit']}/{config['weekly_goal']}. User may ask about any symbol; only fetch data for symbols mentioned in this message. Watchlist (context only): {watchlist_hint}.
+Best strategy: {best_strategy[0] if best_strategy else 'N/A'} (profit ${best_strategy[1]['profit']:.2f}).
 {learning_context}
 
-{stock_data_context if stock_data_context else "无股票数据 - 作为通用AI助手回答"}
+Respond in user's language (Chinese/English). Max 150 words. Be conversational. Never dump raw numbers - explain what they mean."""
+        else:
+            system_prompt = f"""You are GEEWONI AI - day trading analyst. Account: ${config['weekly_profit']}/{config['weekly_goal']}. Best strategy: {best_strategy[0] if best_strategy else 'N/A'}.
+{learning_context}
+{stock_data_context if stock_data_context else "No stock data - answer from market knowledge."}
+Reply: concise, conversational, in user language. Include entry/target/stop when analyzing stocks. Max 200 words."""
 
-分析方法:
-- 如果有实时数据: 使用技术指标 (EMA, RSI, 成交量) 精确分析
-- 如果无实时数据: 基于最新市场新闻、趋势、基本面分析
-
-当分析股票时:
-1. EMA 趋势判断 (如果有数据)
-   - 价格 > EMA9 > EMA21 = 强势看涨
-   - 价格 < EMA9 < EMA21 = 强势看跌
-2. RSI 最佳范围: {insights['best_rsi_range']['min']:.0f}-{insights['best_rsi_range']['max']:.0f} (根据历史成功交易)
-3. 成交量确认: >{insights['best_volume_ratio']:.1f}x
-4. 如果无实时数据，分析:
-   - 最新新闻和市场事件
-   - 行业趋势和竞争态势
-   - 公司基本面
-   - 技术面支撑阻力位 (基于近期走势知识)
-5. 优先推荐用户成功率高的策略: {', '.join(insights['preferred_strategies'][:2]) if insights['preferred_strategies'] else '所有策略'}
-6. 提供具体的:
-   - 入场价格建议
-   - 目标价格
-   - 止损价格
-   - 推荐策略名称
-   - 理由说明
-
-回复格式 (简短直接):
-📊 [股票代码] 分析
-💰 当前: $XXX (或 "基于市场知识")
-📈 入场: $XXX (原因)
-🎯 目标: $XXX 
-🛑 止损: $XXX
-📋 策略: [策略名称]
-💡 理由: [简短说明，包括新闻/事件如果相关]
-
-用中文回复，简短专业。无论是否有实时数据，都要给出有价值的分析。"""
-
+        user_prompt = user_query + (stock_data_context if stock_data_context else "")
+        
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_query}
+                {"role": "user", "content": user_prompt}
             ],
-            max_tokens=600,
+            max_tokens=300,
             temperature=0.3
         )
         
@@ -715,16 +632,14 @@ AI 学习数据:
                     print(f"⚠️ 无法提取推荐数据: {e}")
         
         # Build response
-        if stock_data_context:
+        if stock_data_context and detected_intent == 'stock_analysis' and stock_symbols:
             if has_realtime_data:
                 data_source_text = "\n".join(data_sources)
                 prefix = f"🧠 <b>AI 交易分析</b>\n\n<b>📡 数据来源:</b>\n{data_source_text}\n\n"
             else:
                 prefix = f"🧠 <b>AI 交易分析</b>\n\n<b>📰 数据来源: AI 市场知识 + 新闻分析</b>\n⚠️ 实时数据不可用\n\n"
-            
-            # Add quick action buttons for stock analysis
             keyboard = []
-            for symbol in stock_symbols[:3]:  # Use requested symbols, not just those with data
+            for symbol in stock_symbols[:3]:
                 keyboard.append([
                     InlineKeyboardButton(f"买入 {symbol}", callback_data=f"buy_{symbol}"),
                     InlineKeyboardButton(f"观察 {symbol}", callback_data=f"watch_{symbol}")
@@ -858,8 +773,8 @@ async def process_trade(update: Update, context):
             open_trade['exit_date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             # Save
-            TRADES_FILE.write_text(json.dumps(trades, indent=2))
-            
+            save_trades(trades)
+
             # Update strategy performance
             update_strategy_performance(open_trade['strategy'], profit)
             
@@ -907,13 +822,13 @@ async def start(update: Update, context):
         f"<b>命令:</b>\n"
         f"/stats - 交易统计\n"
         f"/morning - 早盘摘要\n"
-        f"/skills - 查看策略库 🆕\n"  # 新增
-        f"/skill [名称] - 策略详情 🆕\n"  # 新增
-        f"/skills - 查看策略库 🆕\n"  # 新增
-        f"/skill [名称] - 策略详情 🆕\n"  # 新增
+        f"/news - 新闻摘要 (抓取+AI筛选)\n"
+        f"/skills - 查看策略库 🆕\n"
+        f"/skill [名称] - 策略详情 🆕\n"
         f"/learn - AI 学习报告 🆕\n"
         f"/usage - AI 使用量\n"
         f"/strategies - 策略表现\n"
+        f"/strategy_report - 多策略代理排名 🆕\n"
         f"/positions - 持仓查看",
         parse_mode='HTML'
     )
@@ -929,7 +844,7 @@ async def stats(update: Update, context):
         f"✅ 盈利: {wins}\n"
         f"❌ 亏损: {total - wins}\n"
         f"📝 总交易: {total}\n"
-        f"⭐ 观察: {', '.join(config['priority'][:5])}",
+        f"⭐ 观察: {', '.join(config.get('priority', [])[:5])}",
         parse_mode='HTML'
     )
 
@@ -945,6 +860,22 @@ async def usage_command(update: Update, context):
         f"💡 每次对话 = 1 次调用",
         parse_mode='HTML'
     )
+
+async def strategy_report_command(update: Update, context):
+    """Phase 2: Show multi-agent strategy rankings and consensus summary."""
+    if not strategy_orchestrator:
+        await update.message.reply_text("⚠️ Strategy orchestrator not loaded. Check skills folder.")
+        return
+    try:
+        rankings = strategy_orchestrator.get_rankings()
+        lines = ["📊 <b>Strategy Agent Rankings</b>\n"]
+        for i, r in enumerate(rankings[:12], 1):
+            lines.append(f"{i}. <b>{r['name']}</b> | Win rate: {r['win_rate']:.1f}% | Trades: {r['total_trades']} | P&L: ${r['total_pnl']:.2f}")
+        lines.append("\n💡 Use /strategies for trade-based strategy stats. Agents use skill rules + live data.")
+        await update.message.reply_text("\n".join(lines), parse_mode='HTML')
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
 
 async def strategies_command(update: Update, context):
     strategies = load_strategies()
@@ -967,72 +898,6 @@ async def learn_command(update: Update, context):
     """Show what AI has learned"""
     summary = get_ai_insights_summary()
     await update.message.reply_text(summary, parse_mode='HTML')
-
-
-
-async def skills_command(update: Update, context):
-    """显示所有可用策略"""
-    if not skills_manager:
-        await update.message.reply_text("⚠️ Skills 系统未加载")
-        return
-    
-    summary = skills_manager.get_skills_summary()
-    beginner_skills = skills_manager.get_recommended_skills_for_beginner()
-    
-    response = f"{summary}\n\n🎓 <b>初学者推荐:</b>\n"
-    for skill_name in beginner_skills:
-        response += f"• {skill_name}\n"
-    
-    response += "\n💡 使用 /skill [名称] 查看详情"
-    await update.message.reply_text(response, parse_mode='HTML')
-
-async def skill_detail_command(update: Update, context):
-    """显示特定策略详情"""
-    if not skills_manager:
-        await update.message.reply_text("⚠️ Skills 系统未加载")
-        return
-    
-    if not context.args:
-        await update.message.reply_text(
-            "使用方法: /skill [策略名称]\n\n"
-            "例如: /skill EMA Crossover\n\n"
-            "查看所有策略: /skills"
-        )
-        return
-    
-    skill_name = ' '.join(context.args)
-    skill = skills_manager.get_skill(skill_name)
-    
-    if not skill:
-        await update.message.reply_text(f"❌ 找不到策略: {skill_name}\n\n查看所有策略: /skills")
-        return
-    
-    entry_conditions = skill['rules'].get('entry_conditions', [])
-    if isinstance(entry_conditions, list):
-        entry_text = '\n'.join([f"  • {c}" for c in entry_conditions[:3]])
-    else:
-        entry_text = "  见策略详情"
-    
-    response = f"""📖 <b>{skill['name']}</b>
-
-<b>类型:</b> {skill['type']}
-<b>难度:</b> {skill['difficulty']}
-<b>描述:</b> {skill['description']}
-
-<b>📈 入场条件:</b>
-{entry_text}
-
-<b>🛑 止损:</b> {skill['rules'].get('stop_loss', 'N/A')}
-<b>💰 仓位:</b> {skill['rules'].get('position_size', 'N/A')}
-
-<b>📊 表现:</b>
-胜率: {skill['performance']['win_rate']:.1f}%
-交易: {skill['performance']['total_trades']}
-盈亏: ${skill['performance']['total_pnl']:.2f}
-
-<b>💡 注意:</b> {skill.get('notes', 'N/A')}
-"""
-    await update.message.reply_text(response, parse_mode='HTML')
 
 async def skills_command(update: Update, context):
     """显示所有可用策略"""
@@ -1130,6 +995,16 @@ async def positions_command(update: Update, context):
     
     await update.message.reply_text(response, parse_mode='HTML', reply_markup=reply_markup if open_trades else None)
 
+async def news_command(update: Update, context):
+    """Fetch and send news digest (same as 9 AM digest, on-demand)."""
+    await update.message.reply_text("⏳ 抓取并筛选新闻中...")
+    try:
+        from news.news_scheduler import get_news_now
+        msg, ok = await get_news_now(client)
+        await update.message.reply_text(msg, parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ 获取新闻失败: {e}")
+
 async def morning_summary(update: Update, context):
     """Generate morning market summary - AI first, real-time data optional"""
     if not client:
@@ -1143,40 +1018,12 @@ async def morning_summary(update: Update, context):
     
     await update.message.reply_text("⏳ 生成早盘摘要中...")
     
-    # Try to get real-time data (optional)
-    stock_data = {}
-    failed_symbols = []
-    
-    for symbol in config['priority'][:7]:
-        data = get_extended_stock_data(symbol)
-        if data:
-            stock_data[symbol] = data
-        else:
-            failed_symbols.append(symbol)
-    
-    # Build context based on what we have
-    if stock_data:
-        # We have real-time data
-        data_context = "📊 实时市场数据 (Yahoo Finance):\n"
-        for sym, data in stock_data.items():
-            data_context += f"""
-{sym}: ${data['current_price']:.2f} ({data['price_change_pct']:+.2f}%)
-趋势: {data['trend']} | RSI: {data['rsi']:.0f}
-成交量: {data['volume_ratio']:.1f}x
-今日高/低: ${data['day_high']:.2f} / ${data['day_low']:.2f}
-"""
-        if failed_symbols:
-            data_context += f"\n⚠️ 部分数据不可用: {', '.join(failed_symbols)}"
-        
-        data_source = f"✅ 使用 {len(stock_data)}/{len(config['priority'][:7])} 实时数据"
-    else:
-        # No real-time data, AI uses its knowledge
-        data_context = f"""无实时数据可用 (市场可能休市或 API 不可用)
+    # No bulk fetch: /morning uses AI knowledge only (Option A). User can ask for a symbol later for details.
+    watchlist_preview = ', '.join(config.get('priority', [])[:5]) or '无'
+    data_context = f"""User's watchlist (for context only): {watchlist_preview}. No real-time data for this morning summary.
 
-重点股票: {', '.join(config['priority'][:7])}
-
-请基于你的知识、最新市场趋势和新闻，分析这些股票。"""
-        data_source = "⚠️ 无实时数据，使用 AI 知识库和市场趋势"
+请基于你的知识、最新市场趋势和新闻，给出今日早盘摘要。用户如需某只股票详情可稍后单独询问。"""
+    data_source = "早盘摘要基于 AI 知识库与市场趋势（未请求实时行情）"
     
     try:
         ai_usage_today += 1
@@ -1232,9 +1079,6 @@ async def morning_summary(update: Update, context):
     except Exception as e:
         print(f"❌ AI Error: {e}")
         await update.message.reply_text(f"❌ 生成摘要失败: {e}")
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ 错误: {e}")
 
 async def win(update: Update, context):
     config['weekly_profit'] += 250
@@ -1284,11 +1128,13 @@ async def main():
         CommandHandler("stats", stats),
         CommandHandler("usage", usage_command),
         CommandHandler("strategies", strategies_command),
+        CommandHandler("strategy_report", strategy_report_command),
         CommandHandler("learn", learn_command),
         CommandHandler("skills", skills_command),
         CommandHandler("skill", skill_detail_command),
         CommandHandler("positions", positions_command),
         CommandHandler("morning", morning_summary),
+        CommandHandler("news", news_command),
         CommandHandler("win", win),
         CommandHandler("loss", loss),
         CallbackQueryHandler(button_callback),
@@ -1298,6 +1144,13 @@ async def main():
     # Add handlers
     for handler in handlers:
         application.add_handler(handler)
+    
+    # Phase 5: 9 AM Malaysia news digest
+    try:
+        from news.news_scheduler import start_news_scheduler
+        start_news_scheduler(client)
+    except Exception as e:
+        print(f"⚠️ News scheduler not started: {e}")
     
     print("🚀 GEEWONI LIVE - Handling messages...")
     

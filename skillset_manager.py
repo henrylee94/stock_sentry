@@ -8,29 +8,25 @@ from typing import Dict, List, Optional
 class SkillsetManager:
     """管理和使用交易技能库"""
     
-    def __init__(self, skills_dir: str = "skills"):
+    def __init__(self, skills_dir: str = "skills", verbose=False):
         self.skills_dir = Path(skills_dir)
         self.skills = {}
-        self.load_all_skills()
+        self.load_all_skills(verbose=verbose)
     
-    def load_all_skills(self):
+    def load_all_skills(self, verbose=False):
         """加载所有技能文件"""
         if not self.skills_dir.exists():
-            print(f"⚠️ Skills directory not found: {self.skills_dir}")
+            if verbose:
+                print(f"⚠️ Skills directory not found: {self.skills_dir}")
             return
-        
-        # 遍历所有 JSON 文件
         for skill_file in self.skills_dir.rglob("*.json"):
             try:
                 with open(skill_file, 'r', encoding='utf-8') as f:
                     skill_data = json.load(f)
-                    skill_name = skill_data['name']
-                    self.skills[skill_name] = skill_data
-                    print(f"✅ Loaded skill: {skill_name}")
+                    self.skills[skill_data['name']] = skill_data
             except Exception as e:
-                print(f"❌ Failed to load {skill_file}: {e}")
-        
-        print(f"\n📚 Total skills loaded: {len(self.skills)}")
+                if verbose:
+                    print(f"❌ Failed to load {skill_file}: {e}")
     
     def get_skill(self, name: str) -> Optional[Dict]:
         """获取特定技能"""

@@ -14,6 +14,12 @@ pytz==2024.1
 tiktoken==0.5.1
 nest_asyncio==1.6.0
 
+# Phase 1: Real-time data (optional - bot works with Yahoo only if not set)
+finnhub-python==2.4.19
+
+# Phase 3: Dashboard charts
+plotly==5.18.0
+
 # 🆕 Scheduling & Automation
 apscheduler==3.10.4
 

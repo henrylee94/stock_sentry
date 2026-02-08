@@ -1,5 +1,24 @@
+# Env and secrets
 .env
 *.env
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# IDE / OS
 .DS_Store
+.idea/
+.vscode/
+.cursor/
+
+# Generated / runtime (script output, built alias list)
+script_log.txt
+script_out.txt
+stock_aliases.json
+
+# Optional: large user-downloaded CSVs (uncomment if you don't want to commit them)
+# nasdaq_screener_*.csv
