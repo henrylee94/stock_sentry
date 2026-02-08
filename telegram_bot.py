@@ -33,20 +33,24 @@ except ImportError:
 
 # READ .env FILE DIRECTLY
 def load_env_file():
+    """加载 .env 文件（仅本地开发时）"""
     env_file = Path('.env')
     if env_file.exists():
         for line in env_file.read_text().splitlines():
             if '=' in line and not line.startswith('#'):
                 key, value = line.split('=', 1)
                 os.environ[key.strip()] = value.strip()
-        print("✅ .env loaded!")
+        print("✅ .env loaded from file")
+    else:
+        print("ℹ️ No .env file (using system environment variables)")
 
 load_env_file()
 
+# 直接从环境变量读取（无论是 .env 还是系统变量）
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_KEY")
 
-# Debug: Print keys (masked)
+# 调试输出（移除实际的 key 值）
 print(f"DEBUG - TELEGRAM_TOKEN: {'✅ Found' if TELEGRAM_TOKEN else '❌ Missing'}")
 print(f"DEBUG - OPENAI_KEY: {'✅ Found' if OPENAI_KEY else '❌ Missing'}")
 if OPENAI_KEY:
