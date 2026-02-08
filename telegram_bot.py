@@ -68,17 +68,41 @@ daily_limit = 1000
 
 # Initialize OpenAI client with error handling
 client = None
+
+print(f"\n🔍 OpenAI 初始化调试:")
+print(f"OPENAI_KEY 存在: {bool(OPENAI_KEY)}")
+
 if OPENAI_KEY:
+    print(f"OPENAI_KEY 长度: {len(OPENAI_KEY)}")
+    print(f"OPENAI_KEY 开头: {OPENAI_KEY[:10]}...")
+    print(f"OPENAI_KEY 结尾: ...{OPENAI_KEY[-10:]}")
+    
     try:
-        # Strip any whitespace or quotes
-        api_key_clean = OPENAI_KEY.strip().strip('"').strip("'")
+        # 清理 key（移除空格、引号、换行）
+        api_key_clean = OPENAI_KEY.strip().strip('"').strip("'").strip()
+        
+        print(f"清理后长度: {len(api_key_clean)}")
+        print(f"清理后开头: {api_key_clean[:10]}...")
+        
+        # 尝试初始化
+        from openai import OpenAI
         client = OpenAI(api_key=api_key_clean)
+        
+        # 测试调用（验证 key 是否有效）
+        print("🧪 测试 API key...")
+        test_response = client.models.list()
+        
         print(f"✅ OpenAI client initialized successfully")
+        print(f"✅ API key 有效！")
+        
     except Exception as e:
         print(f"❌ OpenAI initialization error: {e}")
+        print(f"❌ Error type: {type(e).__name__}")
         client = None
 else:
     print("⚠️ OPENAI_KEY not found")
+
+print(f"最终 client 状态: {'✅ 可用' if client else '❌ None'}\n")
 
 # 🆕 Initialize SkillsetManager
 skills_manager = None
@@ -439,8 +463,14 @@ async def ai_brain(update: Update, context):
     if not update.message or not update.message.text:
         return
     
-    if not client:
-        await update.message.reply_text("⚠️ AI 不可用。请在 .env 添加 OPENAI_KEY")
+   if not client:
+        # 更详细的错误信息
+        await update.message.reply_text(
+            f"⚠️ AI 暂时不可用\n"
+            f"调试信息:\n"
+            f"OPENAI_KEY: {'找到' if OPENAI_KEY else '未找到'}\n"
+            f"Client: {'初始化失败' if OPENAI_KEY and not client else '未初始化'}"
+        )
         return
     
     if ai_usage_today >= daily_limit:
