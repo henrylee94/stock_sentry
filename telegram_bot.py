@@ -66,41 +66,61 @@ AI_LEARNING_FILE = Path("ai_learning.json")
 ai_usage_today = 0
 daily_limit = 1000
 
-# Initialize OpenAI client with error handling
+# Initialize OpenAI client with DETAILED error handling
 client = None
 
-print(f"\n🔍 OpenAI 初始化调试:")
-print(f"OPENAI_KEY 存在: {bool(OPENAI_KEY)}")
+print("\n" + "="*60)
+print("🔍 OpenAI Client 初始化")
+print("="*60)
 
 if OPENAI_KEY:
-    print(f"OPENAI_KEY 长度: {len(OPENAI_KEY)}")
-    print(f"OPENAI_KEY 开头: {OPENAI_KEY[:10]}...")
-    print(f"OPENAI_KEY 结尾: ...{OPENAI_KEY[-10:]}")
+    print(f"✅ OPENAI_KEY 已找到")
+    print(f"   长度: {len(OPENAI_KEY)}")
+    print(f"   开头: {OPENAI_KEY[:15]}...")
     
     try:
-        # 清理 key（移除空格、引号、换行）
+        # 清理 API key
         api_key_clean = OPENAI_KEY.strip().strip('"').strip("'").strip()
+        print(f"   清理后长度: {len(api_key_clean)}")
         
-        print(f"清理后长度: {len(api_key_clean)}")
-        print(f"清理后开头: {api_key_clean[:10]}...")
-        
-        # 尝试初始化
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key_clean)
-        
-        # 测试调用（验证 key 是否有效）
-        print("🧪 测试 API key...")
-        test_response = client.models.list()
-        
-        print(f"✅ OpenAI client initialized successfully")
-        print(f"✅ API key 有效！")
-        
+        # 检查格式
+        if not api_key_clean.startswith('sk-'):
+            print(f"❌ 错误: API key 格式不正确（不是以 sk- 开头）")
+            client = None
+        else:
+            print(f"✅ API key 格式正确")
+            
+            # 尝试初始化
+            print(f"🔄 初始化 OpenAI client...")
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key_clean)
+            
+            print(f"✅ Client 创建成功")
+            
+            # 测试 API（可选，但会消耗 1 次调用）
+            # print(f"🧪 测试 API 连接...")
+            # models = client.models.list()
+            # print(f"✅ API 连接成功！")
+            
     except Exception as e:
-        print(f"❌ OpenAI initialization error: {e}")
-        print(f"❌ Error type: {type(e).__name__}")
+        print(f"❌ 初始化失败!")
+        print(f"   错误类型: {type(e).__name__}")
+        print(f"   错误信息: {str(e)}")
+        import traceback
+        print(f"   详细堆栈:")
+        traceback.print_exc()
         client = None
 else:
-    print("⚠️ OPENAI_KEY not found")
+    print(f"❌ OPENAI_KEY 环境变量未找到")
+
+print(f"\n最终状态: {'✅ client 可用' if client else '❌ client = None'}")
+print("="*60 + "\n")
+
+# 最后的状态提示
+if client:
+    print(f"✅ gpt-4o-mini LIVE")
+else:
+    print(f"⚠️ AI 不可用 - 请检查上面的错误信息")
 
 print(f"最终 client 状态: {'✅ 可用' if client else '❌ None'}\n")
 
