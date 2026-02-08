@@ -1195,7 +1195,7 @@ async def loss(update: Update, context):
     await update.message.reply_text(f"❌ -$100 亏损\n💰 ${config['weekly_profit']:,}/{config['weekly_goal']:,}")
 
 async def main():
-    print("🧠 GEEWONI AI 交易大脑 v7.0")
+    print("🧠 GEEWONI AI 交易大脑 v7.1")
     
     if not TELEGRAM_TOKEN:
         print("❌ 设置 TELEGRAM_TOKEN!")
@@ -1206,23 +1206,25 @@ async def main():
     # Create application
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
-    # Add handlers
+    # 🔥 CRITICAL - Fix multiple instances
+    await application.bot.delete_webhook(drop_pending_updates=True)
+    print("✅ Old webhooks + pending updates cleared!")
+    
+    # Add handlers (REMOVE DUPLICATES)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("usage", usage_command))
     application.add_handler(CommandHandler("strategies", strategies_command))
-    application.add_handler(CommandHandler("learn", learn_command))  # AI Learning
-    application.add_handler(CommandHandler("skills", skills_command))  # 🆕
-    application.add_handler(CommandHandler("skill", skill_detail_command))  # 🆕
-    application.add_handler(CommandHandler("skills", skills_command))  # 🆕
-    application.add_handler(CommandHandler("skill", skill_detail_command))  # 🆕
+    application.add_handler(CommandHandler("learn", learn_command))
+    application.add_handler(CommandHandler("skills", skills_command))
+    application.add_handler(CommandHandler("skill", skill_detail_command))
     application.add_handler(CommandHandler("positions", positions_command))
     application.add_handler(CommandHandler("morning", morning_summary))
     application.add_handler(CommandHandler("win", win))
     application.add_handler(CommandHandler("loss", loss))
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    # Route messages to either trade processing or AI brain
+    # Route messages
     async def route_message(update: Update, context):
         text = update.message.text.strip().lower()
         if text.startswith('buy ') or text.startswith('sell '):
@@ -1232,22 +1234,10 @@ async def main():
     
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, route_message))
     
-    print("🚀 GEEWONI AI v7.0 启动!")
+    print("🚀 GEEWONI AI v7.1 SINGLE INSTANCE LIVE!")
     
-    # Initialize and start polling
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(drop_pending_updates=True)
-    
-    # Keep running
-    try:
-        await asyncio.Event().wait()
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    finally:
-        await application.updater.stop()
-        await application.stop()
-        await application.shutdown()
+    # 🔥 NEW SIMPLE POLLING - No conflicts
+    await application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     try:
