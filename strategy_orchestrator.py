@@ -140,3 +140,26 @@ class StrategyOrchestrator:
             })
         rankings.sort(key=lambda x: (x["win_rate"], x["total_pnl"]), reverse=True)
         return rankings
+    
+    def get_signal_by_strategy(
+        self,
+        market_data: Dict[str, Any],
+        symbol: str,
+        strategy_name: str
+    ) -> Optional[TradingSignal]:
+        """
+        Run one strategy agent by name and return its signal.
+        Returns TradingSignal or None if strategy not found.
+        """
+        agent = next((a for a in self.agents if a.skill_name.lower() == strategy_name.lower()), None)
+        if not agent:
+            return None
+        try:
+            return agent.analyze(market_data)
+        except Exception as e:
+            print(f"⚠️ Error running strategy {strategy_name}: {e}")
+            return None
+    
+    def list_all_strategies(self) -> List[str]:
+        """Return list of all available strategy names."""
+        return [a.skill_name for a in self.agents]

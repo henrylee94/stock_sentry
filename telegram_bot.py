@@ -41,7 +41,7 @@ except ImportError:
 
 # 🆕 Phase 1: Intent Detector + Rules Engine + Data Manager
 try:
-    from intent_detector import IntentDetector
+    from intent_detector import IntentDetector, resolve_symbol
     from rules_engine import RulesEngine
     from core.data_manager import get_extended_stock_data as data_manager_get_stock
     RULES_SYSTEM_ENABLED = True
@@ -51,6 +51,7 @@ except ImportError as e:
     IntentDetector = None
     RulesEngine = None
     data_manager_get_stock = None
+    def resolve_symbol(text): return (text or "").strip().upper()
 
 # 🆕 Phase 2: Strategy Orchestrator (multi-agent consensus)
 try:
@@ -61,6 +62,33 @@ except ImportError as e:
     ORCHESTRATOR_ENABLED = False
     StrategyOrchestrator = None
 
+# Multi-agent pipeline (Analyzer → Technical → Strategy → Backtester → Final Decision)
+try:
+    from agents import (
+        analyzer_run,
+        technical_analyst_get_block,
+        strategy_generator_get_line,
+        backtester_agent_run_line,
+        final_decision_build_prompts,
+    )
+    AGENTS_PIPELINE_ENABLED = True
+except ImportError as e:
+    print(f"⚠️ Agents pipeline not available: {e}")
+    AGENTS_PIPELINE_ENABLED = False
+    analyzer_run = technical_analyst_get_block = strategy_generator_get_line = None
+    backtester_agent_run_line = final_decision_build_prompts = None
+
+try:
+    from agents.tools import OPENAI_TOOLS, execute_tool
+    FUNCTION_CALLING_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Function calling tools not available: {e}")
+    FUNCTION_CALLING_AVAILABLE = False
+    OPENAI_TOOLS = []
+    execute_tool = None
+
+# Use OpenAI tools for stock questions when available (model can call get_stock_data, run_backtest, get_news)
+USE_FUNCTION_CALLING = True
 
 # READ .env FILE DIRECTLY
 def load_env_file():
@@ -483,71 +511,211 @@ async def ai_brain(update: Update, context):
         return
     
     user_query = update.message.text.strip()
-    
-    # Phase 1: Intent detection (free, no API)
-    if intent_detector:
+
+    # Phase 1: Analyzer (or legacy intent detection)
+    if AGENTS_PIPELINE_ENABLED and analyzer_run:
+        intent_data = analyzer_run(user_query)
+        stock_symbols = intent_data.get("symbols", [])
+        detected_intent = intent_data.get("intent", "general")
+        print(f"🎯 Intent: {detected_intent} | Symbols: {stock_symbols} (agents)")
+    elif intent_detector:
         intent_data = intent_detector.detect(user_query)
-        stock_symbols = intent_data.get('symbols', [])
-        detected_intent = intent_data.get('intent', 'general')
+        stock_symbols = intent_data.get("symbols", [])
+        detected_intent = intent_data.get("intent", "general")
         print(f"🎯 Intent: {detected_intent} | Symbols: {stock_symbols}")
     else:
         try:
-            stock_symbols = list(set(re.findall(r'\b[A-Z]{2,5}\b', user_query)))[:3]
+            stock_symbols = list(set(re.findall(r"\b[A-Z]{2,5}\b", user_query)))[:3]
         except Exception:
             stock_symbols = []
-        detected_intent = 'stock_analysis' if stock_symbols else 'general'
+        detected_intent = "stock_analysis" if stock_symbols else "general"
 
-    # Fetch stock data when needed
     stock_data = {}
     stock_data_context = ""
     data_sources = []
     has_realtime_data = False
-    
-    if (detected_intent == 'stock_analysis' or stock_symbols) and stock_symbols:
-        for symbol in list(set(stock_symbols))[:3]:
-            data = get_extended_stock_data(symbol)
-            if data:
-                stock_data[symbol] = data
-                data_sources.append(f"✅ {symbol}: {data.get('data_source', 'Yahoo')} ({data['last_update']})")
-                has_realtime_data = True
-            else:
-                data_sources.append(f"⚠️ {symbol}: 无实时数据")
-        
-        if stock_data:
-            stock_data_context = "\n\n📊 Market data (for analysis - explain in words, do not dump raw):\n"
+
+    if (detected_intent == "stock_analysis" or stock_symbols) and stock_symbols:
+        if AGENTS_PIPELINE_ENABLED and technical_analyst_get_block:
+            # Pipeline: Technical Analyst block + Consensus + Fit + Strategy + Backtester + News
+            data_block, stock_data = technical_analyst_get_block(list(set(stock_symbols))[:3])
+            stock_data_context = data_block
             for sym, data in stock_data.items():
-                stock_data_context += f"{sym}: ${data['current_price']:.2f} ({data['price_change_pct']:+.2f}%) | {data['trend']} | RSI {data['rsi']:.0f} | EMA9 ${data['ema_9']:.2f} EMA21 ${data['ema_21']:.2f} | support ${data['support']:.2f} resist ${data['resistance']:.2f} | vol {data['volume_ratio']:.2f}x\n"
-            # Phase 2: Agent consensus
-            if strategy_orchestrator:
-                try:
+                data_sources.append(f"✅ {sym}: {data.get('data_source', 'Yahoo')} ({data.get('last_update', '')})")
+                has_realtime_data = True
+            for sym in (set(stock_symbols[:3]) - set(stock_data.keys())):
+                data_sources.append(f"⚠️ {sym}: 无实时数据")
+            
+            # NEW: Strategy selection UI - show buttons for user to pick strategies
+            if stock_data and strategy_orchestrator:
+                first_sym = next(iter(stock_data))
+                first_data = stock_data[first_sym]
+                
+                # Get list of all strategies
+                strategies = strategy_orchestrator.list_all_strategies()
+                
+                # Build strategy buttons (2 per row)
+                buttons = []
+                for i in range(0, len(strategies), 2):
+                    row = []
+                    for j in range(2):
+                        if i + j < len(strategies):
+                            strat = strategies[i + j]
+                            row.append(InlineKeyboardButton(strat, callback_data=f"strat:{strat}"))
+                    buttons.append(row)
+                
+                # Add "Compare All" button
+                buttons.append([InlineKeyboardButton("🔍 比較所有策略", callback_data="strat:compare_all")])
+                
+                reply_markup = InlineKeyboardMarkup(buttons)
+                
+                # Build summary message
+                summary_msg = f"📊 <b>{first_sym}</b> ${first_data['current_price']:.2f} ({first_data['price_change_pct']:+.2f}%)\n"
+                summary_msg += f"RSI {first_data['rsi']:.0f} | {first_data['trend']}\n\n"
+                summary_msg += f"<b>選擇策略</b> (pick 1-3 to see results):"
+                
+                # Store in context for callback handler
+                context.user_data['pending_symbol'] = first_sym
+                context.user_data['pending_stock_data'] = first_data
+                context.user_data['all_stock_data'] = stock_data
+                
+                # Send and return early (don't proceed to LLM)
+                await update.message.reply_html(summary_msg, reply_markup=reply_markup)
+                return
+            
+            if stock_data:
+                if strategy_orchestrator:
+                    try:
+                        first_sym = next(iter(stock_data))
+                        consensus = strategy_orchestrator.get_consensus_signal(stock_data[first_sym], first_sym)
+                        stock_data_context += f"[Consensus] {consensus['summary']}"
+                        if consensus.get("top_signals"):
+                            stock_data_context += " Top: " + ", ".join([f"{s['strategy']}({s['confidence']}%)" for s in consensus["top_signals"][:3]])
+                        stock_data_context += "\n"
+                    except Exception as e:
+                        print(f"Orchestrator consensus error: {e}")
+                if skills_manager:
+                    try:
+                        recommended_skills = []
+                        for sym, data in stock_data.items():
+                            skills = skills_manager.match_skill_to_market({
+                                "trend": data.get("trend_en", "neutral"),
+                                "rsi": data.get("rsi", 50),
+                                "volume_ratio": data.get("volume_ratio", 1.0),
+                                "volatility": "normal",
+                            })
+                            recommended_skills.extend(skills)
+                        rec = list(set(recommended_skills))[:3]
+                        if rec:
+                            stock_data_context += "[Fit] " + ", ".join(rec) + "\n"
+                    except Exception as e:
+                        print(f"Skills error: {e}")
+                if strategy_generator_get_line:
+                    stock_data_context += strategy_generator_get_line()
+                if backtester_agent_run_line and strategy_orchestrator:
                     first_sym = next(iter(stock_data))
-                    consensus = strategy_orchestrator.get_consensus_signal(stock_data[first_sym], first_sym)
-                    stock_data_context += f"\n🤖 Agent consensus: {consensus['summary']}\n"
-                    if consensus.get('top_signals'):
-                        stock_data_context += "Top strategies: " + ", ".join([f"{s['strategy']}({s['confidence']}%)" for s in consensus['top_signals']]) + "\n"
-                except Exception as e:
-                    print(f"Orchestrator consensus error: {e}")
-            if skills_manager:
+                    stock_data_context += backtester_agent_run_line(first_sym, strategy_orchestrator)
                 try:
-                    recommended_skills = []
-                    for sym, data in stock_data.items():
-                        skills = skills_manager.match_skill_to_market({
-                            'trend': data.get('trend_en', 'neutral'),
-                            'rsi': data.get('rsi', 50),
-                            'volume_ratio': data.get('volume_ratio', 1.0),
-                            'volatility': 'normal'
-                        })
-                        recommended_skills.extend(skills)
-                    recommended_skills = list(set(recommended_skills))[:3]
-                    if recommended_skills:
-                        stock_data_context += "\nRecommended strategies: " + ", ".join(recommended_skills) + "\n"
-                except Exception as e:
-                    print(f"Skills error: {e}")
+                    import feedparser
+                    for sym in list(stock_data.keys())[:2]:
+                        try:
+                            rss = feedparser.parse(f"https://finance.yahoo.com/rss/headline?s={sym}", request_headers={"User-Agent": "Mozilla/5.0"})
+                            if rss.entries:
+                                stock_data_context += f"[News {sym}] {rss.entries[0].get('title', '')[:80]}\n"
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            else:
+                stock_data_context = "\n\n⚠️ No real-time data - use your market knowledge and news.\n"
         else:
-            stock_data_context = "\n\n⚠️ No real-time data - use your market knowledge and news.\n"
-    
-    # Build compact context for other intents
-    if rules_engine and detected_intent == 'positions':
+            # Legacy: inline fetch and build
+            for symbol in list(set(stock_symbols))[:3]:
+                data = get_extended_stock_data(symbol)
+                if data:
+                    stock_data[symbol] = data
+                    data_sources.append(f"✅ {symbol}: {data.get('data_source', 'Yahoo')} ({data.get('last_update', '')})")
+                    has_realtime_data = True
+                else:
+                    data_sources.append(f"⚠️ {symbol}: 无实时数据")
+            if stock_data:
+                stock_data_context = "\n[Data]\n"
+                for sym, data in stock_data.items():
+                    sess = data.get("session", "regular")
+                    stock_data_context += f"{sym}: ${data['current_price']:.2f} ({data['price_change_pct']:+.2f}%) {data['trend']} RSI{data['rsi']:.0f} sup${data['support']:.2f} res${data['resistance']:.2f} vol{data['volume_ratio']:.2f}x session:{sess}\n"
+                if strategy_orchestrator:
+                    try:
+                        first_sym = next(iter(stock_data))
+                        consensus = strategy_orchestrator.get_consensus_signal(stock_data[first_sym], first_sym)
+                        stock_data_context += f"[Consensus] {consensus['summary']}"
+                        if consensus.get("top_signals"):
+                            stock_data_context += " Top: " + ", ".join([f"{s['strategy']}({s['confidence']}%)" for s in consensus["top_signals"][:3]])
+                        stock_data_context += "\n"
+                    except Exception as e:
+                        print(f"Orchestrator consensus error: {e}")
+                if skills_manager:
+                    try:
+                        recommended_skills = []
+                        for sym, data in stock_data.items():
+                            skills = skills_manager.match_skill_to_market({
+                                "trend": data.get("trend_en", "neutral"),
+                                "rsi": data.get("rsi", 50),
+                                "volume_ratio": data.get("volume_ratio", 1.0),
+                                "volatility": "normal",
+                            })
+                            recommended_skills.extend(skills)
+                        rec = list(set(recommended_skills))[:3]
+                        if rec:
+                            stock_data_context += "[Fit] " + ", ".join(rec) + "\n"
+                    except Exception as e:
+                        print(f"Skills error: {e}")
+                if strategy_generator_get_line:
+                    stock_data_context += strategy_generator_get_line()
+                else:
+                    try:
+                        strat_list = load_strategies()
+                        if strat_list:
+                            def _score(s):
+                                name, data = s
+                                w, L = data.get("wins", 0), data.get("losses", 0)
+                                total = w + L
+                                wr = (w / total) if total > 0 else 0
+                                return (wr, data.get("profit", 0))
+                            ranked = sorted(strat_list.items(), key=_score, reverse=True)
+                            top2 = [s[0] for s in ranked[:2]]
+                            stock_data_context += "[Strategy pick] " + ", ".join(top2) + " (by win rate & P&L)\n"
+                    except Exception as e:
+                        print(f"Strategy pick error: {e}")
+                if backtester_agent_run_line and strategy_orchestrator:
+                    first_sym = next(iter(stock_data))
+                    stock_data_context += backtester_agent_run_line(first_sym, strategy_orchestrator)
+                else:
+                    try:
+                        from backtester import run_backtest
+                        first_sym = next(iter(stock_data))
+                        if strategy_orchestrator:
+                            bt = run_backtest(first_sym, strategy_orchestrator, days=60)
+                            if "error" not in bt:
+                                total = bt.get("total_days", 0)
+                                b, s, h = bt.get("buy_days", 0), bt.get("sell_days", 0), bt.get("hold_days", 0)
+                                stock_data_context += f"[Backtest {first_sym}] 60d: BUY {b}d SELL {s}d HOLD {h}d (total {total}d)\n"
+                    except Exception as e:
+                        print(f"Backtest error: {e}")
+                try:
+                    import feedparser
+                    for sym in list(stock_data.keys())[:2]:
+                        try:
+                            rss = feedparser.parse(f"https://finance.yahoo.com/rss/headline?s={sym}", request_headers={"User-Agent": "Mozilla/5.0"})
+                            if rss.entries:
+                                stock_data_context += f"[News {sym}] {rss.entries[0].get('title', '')[:80]}\n"
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            else:
+                stock_data_context = "\n\n⚠️ No real-time data - use your market knowledge and news.\n"
+
+    if rules_engine and detected_intent == "positions":
         trades = load_trades()
         open_pos = [t for t in trades if t.get('status') == 'open']
         stock_data_context = "\nOpen positions: " + json.dumps(open_pos, ensure_ascii=False, default=str) + "\n"
@@ -564,47 +732,132 @@ async def ai_brain(update: Update, context):
         print(f"🤖 OpenAI API (usage: {ai_usage_today}/{daily_limit})...")
         
         strategies = load_strategies()
-        best_strategy = max(strategies.items(), key=lambda x: x[1]['profit']) if strategies else None
+        best_strategy = max(strategies.items(), key=lambda x: x[1]["profit"]) if strategies else None
         learning = load_ai_learning()
-        insights = learning['learning_insights']
+        insights = learning["learning_insights"]
         learning_context = ""
-        if learning.get('total_recommendations', 0) > 0:
-            tr = learning['total_recommendations']
-            success_rate = (learning.get('recommendations_followed', 0) / tr * 100) if tr else 0
+        if learning.get("total_recommendations", 0) > 0:
+            tr = learning["total_recommendations"]
+            success_rate = (learning.get("recommendations_followed", 0) / tr * 100) if tr else 0
             learning_context = f"AI learning: success rate {success_rate:.1f}%, best RSI {insights['best_rsi_range']['min']:.0f}-{insights['best_rsi_range']['max']:.0f}, preferred strategies: {', '.join(insights.get('preferred_strategies', [])[:2]) or 'any'}\n"
-        
-        if rules_engine:
-            relevant_rules = rules_engine.get_relevant_rules(detected_intent)
-            watchlist_hint = ', '.join(config.get('priority', [])[:5]) if config.get('priority') else 'none'
-            system_prompt = f"""{relevant_rules}
+        watchlist_hint = ", ".join(config.get("priority", [])[:5]) if config.get("priority") else "none"
+        account_line = f"Account: P&L ${config['weekly_profit']}/{config['weekly_goal']}. Watchlist: {watchlist_hint}. Best strategy: {best_strategy[0] if best_strategy else 'N/A'}."
 
-Account: weekly P&L ${config['weekly_profit']}/{config['weekly_goal']}. User may ask about any symbol; only fetch data for symbols mentioned in this message. Watchlist (context only): {watchlist_hint}.
-Best strategy: {best_strategy[0] if best_strategy else 'N/A'} (profit ${best_strategy[1]['profit']:.2f}).
-{learning_context}
-
-Respond in user's language (Chinese/English). Max 150 words. Be conversational. Never dump raw numbers - explain what they mean."""
-        else:
-            system_prompt = f"""You are GEEWONI AI - day trading analyst. Account: ${config['weekly_profit']}/{config['weekly_goal']}. Best strategy: {best_strategy[0] if best_strategy else 'N/A'}.
-{learning_context}
-{stock_data_context if stock_data_context else "No stock data - answer from market knowledge."}
-Reply: concise, conversational, in user language. Include entry/target/stop when analyzing stocks. Max 200 words."""
-
-        user_prompt = user_query + (stock_data_context if stock_data_context else "")
-        
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            max_tokens=300,
-            temperature=0.3
+        use_function_calling = (
+            (detected_intent == "stock_analysis" or bool(stock_symbols))
+            and USE_FUNCTION_CALLING
+            and FUNCTION_CALLING_AVAILABLE
+            and execute_tool
         )
-        
-        response_text = response.choices[0].message.content
+        response_text = ""
+        if use_function_calling:
+            system_tools = f"""You are GEEWONI AI, a day trading analyst. You have tools: get_stock_data(symbol), run_backtest(symbol), get_news(symbol). Use them when the user asks about a stock. Then reply shortly in the user's language: ① 建議 BUY/SELL/觀望 ② 入場 ③ 目標 ④ 止損 ⑤ 一句理由. {account_line} {learning_context}"""
+            messages = [
+                {"role": "system", "content": system_tools},
+                {"role": "user", "content": user_query},
+            ]
+            max_rounds = 3
+            last_resp = None
+            for _round in range(max_rounds):
+                last_resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    tools=OPENAI_TOOLS,
+                    tool_choice="auto",
+                    max_tokens=300,
+                    temperature=0.3,
+                )
+                msg = last_resp.choices[0].message
+                if not (msg.tool_calls and len(msg.tool_calls) > 0):
+                    response_text = (msg.content or "").strip()
+                    break
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                        for tc in msg.tool_calls
+                    ],
+                })
+                for tc in msg.tool_calls:
+                    name = tc.function.name
+                    args = json.loads(tc.function.arguments) if getattr(tc.function, "arguments", None) else {}
+                    if args.get("symbol"):
+                        args["symbol"] = resolve_symbol(args["symbol"])
+                    result = execute_tool(
+                        name,
+                        args,
+                        get_stock_data_fn=get_extended_stock_data,
+                        orchestrator=strategy_orchestrator,
+                    )
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+            else:
+                if last_resp and last_resp.choices:
+                    response_text = (last_resp.choices[0].message.content or "").strip()
+            if stock_symbols and not stock_data and get_extended_stock_data:
+                try:
+                    sym = resolve_symbol(stock_symbols[0])
+                    data = get_extended_stock_data(sym)
+                    if data:
+                        stock_data[sym] = data
+                        has_realtime_data = True
+                        data_sources.append(f"✅ {sym}: {data.get('data_source', 'Yahoo')} ({data.get('last_update', '')})")
+                except Exception:
+                    pass
+        else:
+            if AGENTS_PIPELINE_ENABLED and final_decision_build_prompts and stock_data_context and (detected_intent == "stock_analysis" or stock_symbols):
+                relevant_rules = rules_engine.get_relevant_rules(detected_intent) if rules_engine else ""
+                prompts = final_decision_build_prompts(
+                    stock_data_context,
+                    user_query,
+                    detected_intent,
+                    stock_symbols,
+                    relevant_rules=relevant_rules,
+                    account_line=account_line,
+                    learning_context=learning_context,
+                    is_stock_analysis=True,
+                )
+                system_prompt = prompts["system"]
+                user_prompt = prompts["user"]
+                max_tok = prompts["max_tokens"]
+            elif rules_engine:
+                relevant_rules = rules_engine.get_relevant_rules(detected_intent)
+                stock_decision_rule = ""
+                if stock_data_context and (detected_intent == "stock_analysis" or stock_symbols):
+                    stock_decision_rule = """
+You are the Final Decision agent. You receive: [Data] technicals, [Consensus] and [Fit] strategies, [Strategy pick] top strategies by performance, [Backtest] 60d signal distribution, [News]. Use all of these. Output MUST be short and help the user decide (max 100 words).
+Required format: ① 建議: BUY / SELL / 觀望 ② 入場 $X.XX ③ 目標 $X.XX ④ 止損 $X.XX ⑤ 一句理由 (mention strategy if [Strategy pick] or [Fit] present).
+If consensus is all HOLD, do NOT say "neutral" and stop. Say 觀望 and give a CONCRETE trigger (e.g. 突破 $X 可考慮買入 / 跌破 $Y 止損). If there is important news in [News], summarize in one short line. Use support/resistance from data for entry/target/stop when possible. Session "extended" = pre-market or after-hours data."""
+                system_prompt = f"""{relevant_rules}
+{stock_decision_rule}
+
+{account_line}
+{learning_context}
+
+Respond in user language. Keep it short and decisive."""
+                user_prompt = user_query + (stock_data_context if stock_data_context else "")
+                max_tok = 180 if (stock_data_context and stock_symbols) else 300
+            else:
+                system_prompt = f"""You are GEEWONI AI - day trading analyst. Best strategy: {best_strategy[0] if best_strategy else 'N/A'}.
+{learning_context}
+{stock_data_context if stock_data_context else "No stock data."}
+Reply: max 100 words. Include 建議 + 入場/目標/止損 + one-line reason. Be decisive, not generic."""
+                user_prompt = user_query + (stock_data_context if stock_data_context else "")
+                max_tok = 180 if (stock_data_context and stock_symbols) else 300
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=max_tok,
+                temperature=0.3,
+            )
+            response_text = response.choices[0].message.content
         
         # Extract AI recommendations from response (if stock analysis)
-        if stock_data_context:
+        if stock_data_context or stock_data:
             # Try to extract recommendation details
             for symbol in stock_data.keys():
                 try:
@@ -632,7 +885,7 @@ Reply: concise, conversational, in user language. Include entry/target/stop when
                     print(f"⚠️ 无法提取推荐数据: {e}")
         
         # Build response
-        if stock_data_context and detected_intent == 'stock_analysis' and stock_symbols:
+        if (stock_data_context or stock_data) and detected_intent == 'stock_analysis' and stock_symbols:
             if has_realtime_data:
                 data_source_text = "\n".join(data_sources)
                 prefix = f"🧠 <b>AI 交易分析</b>\n\n<b>📡 数据来源:</b>\n{data_source_text}\n\n"
@@ -662,8 +915,26 @@ Reply: concise, conversational, in user language. Include entry/target/stop when
         print(f"❌ OpenAI API 错误: {e}")
         await update.message.reply_text(f"❌ AI 错误: {str(e)}")
 
-# Button callback handler
+# Button callback router
 async def button_callback(update: Update, context):
+    """Route callbacks to appropriate handler based on data format"""
+    query = update.callback_query
+    
+    if query.data.startswith('strat:'):
+        # Strategy selection callback
+        await strategy_button_callback(update, context)
+    elif query.data.startswith('tune:') or query.data.startswith('param:'):
+        # Strategy parameter tuning callback
+        await tune_param_callback(update, context)
+    elif '_' in query.data:
+        # Legacy buy/sell callback
+        await legacy_button_callback(update, context)
+    else:
+        await query.answer()
+
+
+# Legacy button callback handler for buy/sell
+async def legacy_button_callback(update: Update, context):
     query = update.callback_query
     await query.answer()
     
@@ -679,6 +950,9 @@ async def button_callback(update: Update, context):
             config['priority'].append(symbol)
             save_config(config)
         await query.message.reply_text(f"👀 已添加 {symbol} 到观察列表")
+
+
+# ... (rest of legacy callback continues below if any)
     elif action == 'sell':
         await query.message.reply_text(
             f"💵 <b>卖出 {symbol}</b>\n\n请输入:\n格式: sell {symbol} 价格\n\n例子: sell {symbol} 150.25",
@@ -899,6 +1173,139 @@ async def learn_command(update: Update, context):
     summary = get_ai_insights_summary()
     await update.message.reply_text(summary, parse_mode='HTML')
 
+async def tune_strategy_command(update: Update, context):
+    """Show strategy list for tuning parameters"""
+    if not strategy_orchestrator:
+        await update.message.reply_text("⚠️ Strategy orchestrator not available")
+        return
+    
+    strategies = strategy_orchestrator.list_all_strategies()
+    
+    # Build buttons
+    buttons = []
+    for i in range(0, len(strategies), 2):
+        row = []
+        for j in range(2):
+            if i + j < len(strategies):
+                strat = strategies[i + j]
+                row.append(InlineKeyboardButton(strat, callback_data=f"tune:{strat}"))
+        buttons.append(row)
+    
+    reply_markup = InlineKeyboardMarkup(buttons)
+    await update.message.reply_html(
+        "<b>⚙️ 調整策略參數</b>\n\n選擇要調整的策略:",
+        reply_markup=reply_markup
+    )
+
+
+async def tune_param_callback(update: Update, context):
+    """Handle strategy parameter tuning"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data  # e.g. "tune:EMA Crossover" or "param:EMA Crossover:rsi_min:+5"
+    
+    if data.startswith("tune:"):
+        # Show strategy parameters
+        strategy_name = data.split(":", 1)[1]
+        await show_strategy_params(query, strategy_name)
+    elif data.startswith("param:"):
+        # Update parameter
+        parts = data.split(":", 3)
+        if len(parts) == 4:
+            _, strategy_name, param_name, change = parts
+            await update_strategy_param(query, strategy_name, param_name, change)
+
+
+async def show_strategy_params(query, strategy_name):
+    """Show current parameters for a strategy with adjustment buttons"""
+    import json
+    from pathlib import Path
+    
+    params_file = Path("strategy_params.json")
+    if params_file.exists():
+        params = json.loads(params_file.read_text())
+    else:
+        params = {}
+    
+    strategy_params = params.get(strategy_name, {})
+    
+    if not strategy_params:
+        await query.edit_message_text(f"⚠️ No tunable parameters for {strategy_name}")
+        return
+    
+    # Build parameter display and buttons
+    text = f"<b>⚙️ {strategy_name}</b>\n\n<b>Current Parameters:</b>\n\n"
+    
+    buttons = []
+    for param, value in strategy_params.items():
+        text += f"• <b>{param}:</b> {value}\n"
+        # Add +/- buttons for this parameter
+        row = [
+            InlineKeyboardButton(f"{param} -5", callback_data=f"param:{strategy_name}:{param}:-5"),
+            InlineKeyboardButton(f"{param} +5", callback_data=f"param:{strategy_name}:{param}:+5"),
+        ]
+        buttons.append(row)
+    
+    # Add back button
+    buttons.append([InlineKeyboardButton("« Back to strategies", callback_data="tune:back")])
+    
+    reply_markup = InlineKeyboardMarkup(buttons)
+    await query.edit_message_text(text, parse_mode='HTML', reply_markup=reply_markup)
+
+
+async def update_strategy_param(query, strategy_name, param_name, change):
+    """Update a strategy parameter"""
+    import json
+    from pathlib import Path
+    
+    params_file = Path("strategy_params.json")
+    if params_file.exists():
+        params = json.loads(params_file.read_text())
+    else:
+        params = {}
+    
+    if strategy_name not in params:
+        params[strategy_name] = {}
+    
+    # Get current value
+    current = params[strategy_name].get(param_name, 0)
+    
+    # Apply change
+    try:
+        delta = float(change)
+        new_value = current + delta
+        
+        # Clamp to reasonable ranges
+        if "rsi" in param_name.lower():
+            new_value = max(0, min(100, new_value))
+        elif "volume" in param_name.lower():
+            new_value = max(0.5, min(5.0, new_value))
+        elif "threshold" in param_name.lower() or "distance" in param_name.lower():
+            new_value = max(0.01, min(0.2, new_value))
+        elif "std_dev" in param_name.lower():
+            new_value = max(1, min(3, new_value))
+        elif "period" in param_name.lower():
+            new_value = max(5, min(100, new_value))
+        
+        params[strategy_name][param_name] = round(new_value, 2)
+        
+        # Save
+        params_file.write_text(json.dumps(params, indent=2))
+        
+        # Update agent params if orchestrator available
+        if strategy_orchestrator:
+            agent = next((a for a in strategy_orchestrator.agents if a.skill_name == strategy_name), None)
+            if agent:
+                agent.params[param_name] = round(new_value, 2)
+        
+        # Refresh display
+        await show_strategy_params(query, strategy_name)
+        
+    except Exception as e:
+        await query.answer(f"Error: {e}", show_alert=True)
+
+
 async def skills_command(update: Update, context):
     """显示所有可用策略"""
     if not skills_manager:
@@ -1103,6 +1510,177 @@ async def route_message(update: Update, context):
     else:
         await ai_brain(update, context)
 
+async def strategy_button_callback(update: Update, context):
+    """Handle strategy button clicks"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data  # e.g. "strat:EMA Crossover" or "strat:compare_all"
+    if not data.startswith("strat:"):
+        return
+    
+    strategy_name = data.split(":", 1)[1]
+    symbol = context.user_data.get('pending_symbol')
+    stock_data = context.user_data.get('pending_stock_data')
+    
+    if not symbol or not stock_data:
+        await query.edit_message_text("⚠️ Session expired. Please ask again.")
+        return
+    
+    if strategy_name == "compare_all":
+        # Run all strategies and show comparison
+        await run_and_compare_all_strategies(query, symbol, stock_data, context)
+    else:
+        # Run single strategy
+        await run_single_strategy(query, symbol, stock_data, strategy_name, context)
+
+
+async def run_single_strategy(query, symbol, stock_data, strategy_name, context):
+    """Run one strategy and show its result"""
+    if not strategy_orchestrator:
+        await query.message.reply_text("⚠️ Strategy orchestrator not available")
+        return
+    
+    signal = strategy_orchestrator.get_signal_by_strategy(stock_data, symbol, strategy_name)
+    if not signal:
+        await query.message.reply_text(f"⚠️ Strategy '{strategy_name}' not found")
+        return
+    
+    # Run per-strategy backtest
+    agent = next((a for a in strategy_orchestrator.agents if a.skill_name.lower() == strategy_name.lower()), None)
+    backtest_result = {}
+    if agent:
+        try:
+            from backtester import run_backtest_single_strategy
+            backtest_result = run_backtest_single_strategy(symbol, agent, days=60)
+        except Exception as e:
+            print(f"Backtest error: {e}")
+    
+    # Format result
+    result_text = format_single_strategy_result(symbol, stock_data, signal, backtest_result)
+    
+    # Send
+    await query.message.reply_html(result_text)
+
+
+def format_single_strategy_result(symbol, stock_data, signal, backtest):
+    """Format per-strategy result with 建議/入場/目標/止損/trigger/backtest"""
+    price = stock_data['current_price']
+    support = stock_data.get('support', 0)
+    resistance = stock_data.get('resistance', 0)
+    
+    # Header
+    text = f"📊 <b>{symbol}</b> ${price:.2f} | Strategy: <b>{signal.strategy_name}</b>\n\n"
+    
+    # 建議
+    action_emoji = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}
+    text += f"{action_emoji.get(signal.action, '⚪')} <b>建議:</b> {signal.action}\n"
+    
+    # Entry/Target/Stop
+    if signal.action == "BUY" or signal.action == "SELL":
+        text += f"💰 <b>入場:</b> ${signal.entry_price:.2f}\n"
+        text += f"🎯 <b>目標:</b> ${signal.target:.2f}\n" if signal.target else "🎯 <b>目標:</b> N/A\n"
+        text += f"🛑 <b>止損:</b> ${signal.stop_loss:.2f}\n" if signal.stop_loss else "🛑 <b>止損:</b> N/A\n"
+    else:  # HOLD
+        text += f"💰 <b>入場:</b> Wait for trigger\n"
+        # Add concrete trigger
+        trigger = get_strategy_trigger(signal, stock_data)
+        text += f"🔔 <b>Trigger:</b> {trigger}\n"
+    
+    # Reason
+    text += f"\n💡 <b>Why:</b> {signal.reasoning}\n"
+    
+    # Backtest (per-strategy)
+    if backtest.get("total_days", 0) > 0:
+        buy_d = backtest['buy_days']
+        sell_d = backtest['sell_days']
+        hold_d = backtest['hold_days']
+        total_d = backtest['total_days']
+        text += f"\n📈 <b>60d Backtest ({signal.strategy_name} only):</b>\n"
+        text += f"   BUY {buy_d}d | SELL {sell_d}d | HOLD {hold_d}d (total {total_d}d)\n"
+    
+    # Confidence
+    text += f"\n🎯 <b>Confidence:</b> {signal.confidence:.0f}%\n"
+    
+    return text
+
+
+def get_strategy_trigger(signal, stock_data):
+    """Generate a concrete trigger for HOLD based on strategy and data"""
+    strat = signal.strategy_name.lower()
+    price = stock_data['current_price']
+    support = stock_data.get('support', price * 0.97)
+    resistance = stock_data.get('resistance', price * 1.03)
+    rsi = stock_data.get('rsi', 50)
+    
+    if "ema" in strat and "crossover" in strat:
+        return f"Wait for EMA crossover or price > ${resistance:.2f}"
+    elif "rsi" in strat:
+        if rsi > 50:
+            return f"Wait for RSI < 35 or price < ${support:.2f}"
+        else:
+            return f"Wait for RSI > 65 or price > ${resistance:.2f}"
+    elif "volume" in strat or "breakout" in strat:
+        return f"Wait for 2x volume + price > ${resistance:.2f}"
+    elif "support" in strat or "resistance" in strat:
+        return f"Buy near support ${support:.2f} or sell near resistance ${resistance:.2f}"
+    elif "bollinger" in strat:
+        bb_lower = stock_data.get('bb_lower', support)
+        return f"Wait for price < ${bb_lower:.2f} (lower BB) + RSI < 30"
+    elif "donchian" in strat or "momentum" in strat:
+        donchian_upper = stock_data.get('donchian_upper_20', resistance)
+        return f"Wait for breakout > ${donchian_upper:.2f} (Donchian upper)"
+    elif "sigma" in strat:
+        return f"Wait for EMA5>9>21 alignment + RSI 40-65"
+    else:
+        return f"Wait for price > ${resistance:.2f} (breakout) or < ${support:.2f} (breakdown)"
+
+
+async def run_and_compare_all_strategies(query, symbol, stock_data, context):
+    """Run all strategies and show comparison table"""
+    if not strategy_orchestrator:
+        await query.message.reply_text("⚠️ Strategy orchestrator not available")
+        return
+    
+    await query.message.reply_text("🔍 Running all strategies... (this may take a few seconds)")
+    
+    results = []
+    for agent in strategy_orchestrator.agents:
+        try:
+            signal = agent.analyze(stock_data)
+            # Run backtest for this strategy
+            try:
+                from backtester import run_backtest_single_strategy
+                backtest = run_backtest_single_strategy(symbol, agent, days=60)
+            except Exception as e:
+                print(f"Backtest error for {agent.skill_name}: {e}")
+                backtest = {"buy_days": 0, "total_days": 0}
+            
+            results.append({
+                "strategy": agent.skill_name,
+                "action": signal.action,
+                "entry": f"${signal.entry_price:.2f}" if signal.entry_price else "wait",
+                "target": f"${signal.target:.2f}" if signal.target else "N/A",
+                "stop": f"${signal.stop_loss:.2f}" if signal.stop_loss else "N/A",
+                "confidence": signal.confidence,
+                "buy_days": backtest.get("buy_days", 0),
+                "total_days": backtest.get("total_days", 60),
+                "reason": signal.reasoning[:40],
+            })
+        except Exception as e:
+            print(f"Error running strategy {agent.skill_name}: {e}")
+    
+    # Format as table
+    text = f"📊 <b>{symbol}</b> ${stock_data['current_price']:.2f} - All strategies comparison\n\n"
+    for r in results:
+        text += f"<b>{r['strategy']}</b>\n"
+        text += f"  建議: {r['action']} | Entry: {r['entry']} | 60d BUY: {r['buy_days']}/{r['total_days']}d\n"
+        text += f"  Target: {r['target']} | Stop: {r['stop']} | Conf: {r['confidence']:.0f}%\n"
+        text += f"  Why: {r['reason']}\n\n"
+    
+    await query.message.reply_html(text)
+
+
 async def main():
     print("🧠 GEEWONI AI v7.1 - Production Ready")
     
@@ -1132,6 +1710,7 @@ async def main():
         CommandHandler("learn", learn_command),
         CommandHandler("skills", skills_command),
         CommandHandler("skill", skill_detail_command),
+        CommandHandler("tune", tune_strategy_command),
         CommandHandler("positions", positions_command),
         CommandHandler("morning", morning_summary),
         CommandHandler("news", news_command),

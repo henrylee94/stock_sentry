@@ -31,13 +31,17 @@ class StrategyAgent:
         self.rules = skill_data.get('rules', {})
         self.params = skill_data.get('parameters', {})
         self.performance = skill_data.get('performance', {})
+        self.market_data_cache = {}  # Cache for accessing new indicators in _evaluate
 
     def analyze(self, market_data: Dict[str, Any]) -> TradingSignal:
         """
         Evaluate market_data against this strategy's rules.
         market_data should have: current_price, ema_9, ema_21, rsi, volume_ratio,
-        support, resistance, trend_en (bullish/bearish/neutral).
+        support, resistance, trend_en (bullish/bearish/neutral), and optional new indicators.
         """
+        # Cache market_data for _evaluate to access new indicators
+        self.market_data_cache = market_data
+        
         price = float(market_data.get('current_price', 0) or 0)
         ema_9 = float(market_data.get('ema_9', 0) or 0)
         ema_21 = float(market_data.get('ema_21', 0) or 0)
@@ -91,6 +95,68 @@ class StrategyAgent:
         rsi_min = self.params.get('rsi_min', 40)
         rsi_max = self.params.get('rsi_max', 70)
         vol_min = self.params.get('volume_ratio', 1.5)
+        
+        # Get additional indicators from cached market_data if available
+        bb_upper = float(self.market_data_cache.get('bb_upper', 0) or 0)
+        bb_middle = float(self.market_data_cache.get('bb_middle', 0) or 0)
+        bb_lower = float(self.market_data_cache.get('bb_lower', 0) or 0)
+        donchian_upper_20 = float(self.market_data_cache.get('donchian_upper_20', 0) or 0)
+        donchian_lower_20 = float(self.market_data_cache.get('donchian_lower_20', 0) or 0)
+        donchian_upper_40 = float(self.market_data_cache.get('donchian_upper_40', 0) or 0)
+        atr = float(self.market_data_cache.get('atr', 0) or 0)
+        week_52_high = float(self.market_data_cache.get('week_52_high', 0) or 0)
+        ema_5 = float(self.market_data_cache.get('ema_5', 0) or 0)
+        
+        # Mean Reversion (Bollinger Bands + RSI)
+        if 'bollinger' in name or (name.startswith('mean reversion') and 'bollinger' in name):
+            if bb_lower > 0 and price < bb_lower and rsi < 30:
+                conf = min(85, 60 + (30 - rsi))
+                return "BUY", conf, "Price < lower BB AND RSI oversold, mean reversion setup"
+            if bb_middle > 0 and (price > bb_middle or rsi > 70):
+                if price > bb_middle and rsi > 70:
+                    return "SELL", 75, "Price > middle BB AND RSI overbought, taking profit"
+                elif price > bb_middle:
+                    return "SELL", 60, "Price > middle BB, reverting to mean"
+                else:
+                    return "SELL", 55, "RSI overbought, expecting pullback"
+            return "HOLD", 40, "Price within Bollinger Bands, no extreme"
+        
+        # Momentum Breakout (Donchian Channels + 52-week high)
+        if 'donchian' in name or 'momentum breakout' in name:
+            # Buy signal: close > upper Donchian(20 or 40) AND near/at 52-week high
+            at_52w_high = (price >= week_52_high * 0.98) if week_52_high > 0 else False
+            if donchian_upper_20 > 0 and price > donchian_upper_20:
+                if at_52w_high:
+                    return "BUY", 90, "Breakout above Donchian + new 52w high, strong momentum"
+                else:
+                    return "BUY", 70, "Breakout above Donchian(20), momentum confirmed"
+            if donchian_upper_40 > 0 and price > donchian_upper_40:
+                if at_52w_high:
+                    return "BUY", 85, "Breakout above Donchian(40) + 52w high, very strong"
+                else:
+                    return "BUY", 65, "Breakout above Donchian(40)"
+            # Exit signal: close < lower Donchian(20)
+            if donchian_lower_20 > 0 and price < donchian_lower_20:
+                return "SELL", 65, "Below Donchian(20) lower, momentum fading"
+            return "HOLD", 40, "No Donchian breakout yet"
+        
+        # Sigma Series (StockHero-inspired: EMA5/9/21 + RSI + volume + trend)
+        if 'sigma' in name or 'stockhero' in name:
+            # Bull-optimized: EMA5 > EMA9 > EMA21, RSI 40-65, volume >= 1.5x, trend bullish
+            ema_5_above = (ema_5 > ema_9) if ema_5 > 0 else (price > ema_9)
+            if ema_5_above and ema_9 > ema_21 and trend_en == 'bullish':
+                if 40 <= rsi <= 65 and vol_ratio >= 1.5:
+                    conf = min(95, 70 + (vol_ratio - 1) * 10 + (60 - abs(rsi - 50)) / 2)
+                    return "BUY", conf, "Sigma: EMA5>9>21, RSI optimal, volume strong, bullish"
+                elif 40 <= rsi <= 65:
+                    return "BUY", 75, "Sigma: EMA alignment, RSI optimal, volume moderate"
+                elif vol_ratio >= 1.5:
+                    return "BUY", 70, "Sigma: EMA alignment, volume strong"
+                else:
+                    return "HOLD", 55, "Sigma: EMA aligned but RSI/volume not ideal"
+            elif ema_5_above and ema_9 > ema_21:
+                return "HOLD", 50, "Sigma: EMA aligned but trend not confirmed"
+            return "HOLD", 40, "Sigma: No EMA alignment yet"
 
         # EMA Crossover
         if 'ema' in name and 'crossover' in name:

@@ -1,0 +1,43 @@
+{
+  "EMA Crossover": {
+    "rsi_min": 40,
+    "rsi_max": 70,
+    "volume_ratio": 1.5
+  },
+  "Volume Breakout": {
+    "volume_ratio": 2.0,
+    "rsi_min": 40
+  },
+  "Support/Resistance": {
+    "rsi_oversold": 45,
+    "rsi_overbought": 55,
+    "distance_threshold": 0.02
+  },
+  "RSI Divergence": {
+    "rsi_oversold": 30,
+    "rsi_overbought": 70
+  },
+  "Trend Following": {
+    "rsi_min": 40,
+    "rsi_max": 70
+  },
+  "Mean Reversion": {
+    "rsi_oversold": 35,
+    "rsi_overbought": 65
+  },
+  "Mean Reversion (Bollinger+RSI)": {
+    "rsi_oversold": 30,
+    "rsi_overbought": 70,
+    "bb_std_dev": 2
+  },
+  "Momentum Breakout (Donchian)": {
+    "donchian_period_short": 20,
+    "donchian_period_long": 40,
+    "week_52_threshold": 0.98
+  },
+  "Sigma Series": {
+    "rsi_min": 40,
+    "rsi_max": 65,
+    "volume_ratio": 1.5
+  }
+}

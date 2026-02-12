@@ -3,39 +3,111 @@ Intent Detector - Fast, Free Intent Classification
 Zero-cost intent detection before calling OpenAI to save tokens
 """
 
+import csv
+import json
 import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Fallback when stock_aliases.json is not present (e.g. before running update_stock_list.py)
+# Minimal fallback only when both stock_aliases.json and nasdaq_screener_*.csv are absent
 NAME_TO_TICKER = {
-    "amazon": "AMZN", "apple": "AAPL", "nvidia": "NVDA", "tesla": "TSLA",
-    "google": "GOOGL", "microsoft": "MSFT", "meta": "META", "palantir": "PLTR",
-    "rocket lab": "RKLB", "rklb": "RKLB", "sofi": "SOFI", "oklo": "OKLO",
-    "netflix": "NFLX", "amd": "AMD", "intel": "INTC", "alphabet": "GOOGL",
-    "berkshire": "BRK.B", "jpmorgan": "JPM", "jpm": "JPM", "visa": "V",
-    "mastercard": "MA", "walmart": "WMT", "costco": "COST", "nike": "NKE",
+    "apple": "AAPL", "amazon": "AMZN", "nvidia": "NVDA", "tesla": "TSLA",
+    "google": "GOOGL", "sofi": "SOFI", "oklo": "OKLO",
 }
 
-_ALIAS_FILE = Path(__file__).resolve().parent / "stock_aliases.json"
+_PROJECT_ROOT = Path(__file__).resolve().parent
+_ALIAS_FILE = _PROJECT_ROOT / "stock_aliases.json"
+_OVERRIDE_FILE = _PROJECT_ROOT / "stock_aliases_override.json"
+_NASDAQ_SCREENER_GLOB = "nasdaq_screener_*.csv"
 _alias_map_cache: Optional[Dict[str, str]] = None
 
 
+def _normalize_name_for_alias(s: str) -> str:
+    """Lowercase, keep letters/spaces/numbers, collapse spaces (for CSV name -> alias)."""
+    if not s:
+        return ""
+    s = re.sub(r"[^a-z0-9\s]", "", s.lower().strip())
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _add_aliases(alias_to_ticker: Dict[str, str], symbol: str, security_name: str) -> None:
+    """Add ticker and normalized company name(s) to alias map."""
+    sym = (symbol or "").strip().upper()
+    if not sym or len(sym) > 10:
+        return
+    alias_to_ticker[sym.lower()] = sym
+    if not security_name:
+        return
+    norm = _normalize_name_for_alias(security_name)
+    if norm:
+        alias_to_ticker[norm] = sym
+    first = norm.split()[0] if norm else ""
+    if first and len(first) >= 2:
+        alias_to_ticker[first] = sym
+
+
+def _load_alias_map_from_csv() -> Optional[Dict[str, str]]:
+    """Build alias -> ticker from newest nasdaq_screener_*.csv in project root. Returns None if no CSV."""
+    csv_files = sorted(_PROJECT_ROOT.glob(_NASDAQ_SCREENER_GLOB), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not csv_files:
+        return None
+    out: Dict[str, str] = {}
+    try:
+        with open(csv_files[0], "r", encoding="utf-8", errors="ignore") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            if not header:
+                return out
+            col_map = {h.strip().lower(): i for i, h in enumerate(header)}
+            sym_idx = col_map.get("symbol", 0)
+            name_idx = col_map.get("name", 1)
+            for row in reader:
+                if len(row) <= max(sym_idx, name_idx):
+                    continue
+                symbol = (row[sym_idx] or "").strip()
+                name = (row[name_idx] or "").strip()
+                if symbol.upper() == "SYMBOL":
+                    continue
+                _add_aliases(out, symbol, name)
+        # Merge override so overrides apply when using CSV
+        if _OVERRIDE_FILE.exists():
+            try:
+                with open(_OVERRIDE_FILE, "r", encoding="utf-8") as f:
+                    override = json.load(f)
+                if isinstance(override, dict):
+                    for k, v in override.items():
+                        if isinstance(v, str):
+                            out[k.strip().lower()] = v.strip().upper()
+                        elif isinstance(v, list) and v and isinstance(v[0], str):
+                            out[k.strip().lower()] = v[0].strip().upper()
+            except Exception:
+                pass
+        return out
+    except Exception:
+        return None
+
+
 def _load_alias_map() -> Dict[str, str]:
-    """Load alias -> ticker from stock_aliases.json if present, else fallback to NAME_TO_TICKER."""
+    """Load alias -> ticker: 1) stock_aliases.json, 2) CSV (nasdaq_screener_*.csv), 3) minimal NAME_TO_TICKER."""
     global _alias_map_cache
     if _alias_map_cache is not None:
         return _alias_map_cache
+    # 1) Prefer stock_aliases.json
     if _ALIAS_FILE.exists():
         try:
             with open(_ALIAS_FILE, "r", encoding="utf-8") as f:
-                import json
                 m = json.load(f)
             if isinstance(m, dict):
                 _alias_map_cache = {k.strip().lower(): v.strip().upper() for k, v in m.items() if isinstance(v, str)}
                 return _alias_map_cache
         except Exception:
             pass
+    # 2) Build from CSV so all screener symbols (e.g. BMNR) resolve without maintaining NAME_TO_TICKER
+    from_csv = _load_alias_map_from_csv()
+    if from_csv:
+        _alias_map_cache = from_csv
+        return _alias_map_cache
+    # 3) Minimal fallback for development when no JSON/CSV
     _alias_map_cache = dict(NAME_TO_TICKER)
     return _alias_map_cache
 

@@ -92,28 +92,71 @@ def _yahoo_extended(symbol: str) -> Optional[Dict]:
         warnings.filterwarnings('ignore')
         ticker = yf.Ticker(symbol)
         hist_data = ticker.history(period="1mo", interval="1d")
-        today_data = ticker.history(period="1d", interval="5m")
+        # prepost=True: include pre-market and after-hours so data works 24/7
+        today_data = ticker.history(period="1d", interval="5m", prepost=True)
         if hist_data.empty or len(hist_data) < 2:
             return None
-        current_price = float(hist_data['Close'].iloc[-1])
+        # Use latest from intraday (pre/post) if available, else last day close
+        if not today_data.empty and len(today_data) >= 1:
+            current_price = float(today_data['Close'].iloc[-1])
+            last_update = today_data.index[-1]
+            session_note = "extended"  # pre-market or after-hours
+        else:
+            current_price = float(hist_data['Close'].iloc[-1])
+            last_update = hist_data.index[-1]
+            session_note = "regular"
         prev_close = float(hist_data['Close'].iloc[-2])
         price_change_pct = ((current_price - prev_close) / prev_close) * 100
+        # EMAs
+        ema_5 = float(hist_data['Close'].ewm(span=5, adjust=False).mean().iloc[-1])
         ema_9 = float(hist_data['Close'].ewm(span=9, adjust=False).mean().iloc[-1])
         ema_21 = float(hist_data['Close'].ewm(span=21, adjust=False).mean().iloc[-1])
         ema_50 = float(hist_data['Close'].ewm(span=min(50, len(hist_data)), adjust=False).mean().iloc[-1]) if len(hist_data) >= 21 else None
+        
+        # RSI
         delta = hist_data['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         rsi = float(100 - (100 / (1 + rs)).iloc[-1]) if not rs.empty and not pd.isna(rs.iloc[-1]) else 50.0
+        
+        # Support/Resistance (20-day)
         recent_high = float(hist_data['High'].tail(20).max())
         recent_low = float(hist_data['Low'].tail(20).min())
+        
+        # Bollinger Bands (20-period SMA ± 2 std dev)
+        sma_20 = hist_data['Close'].rolling(20).mean()
+        std_20 = hist_data['Close'].rolling(20).std()
+        bb_upper = float((sma_20 + (2 * std_20)).iloc[-1]) if not sma_20.empty and not pd.isna(sma_20.iloc[-1]) else 0
+        bb_middle = float(sma_20.iloc[-1]) if not sma_20.empty and not pd.isna(sma_20.iloc[-1]) else 0
+        bb_lower = float((sma_20 - (2 * std_20)).iloc[-1]) if not sma_20.empty and not pd.isna(sma_20.iloc[-1]) else 0
+        
+        # Donchian Channels
+        donchian_upper_20 = float(hist_data['High'].rolling(20).max().iloc[-1])
+        donchian_lower_20 = float(hist_data['Low'].rolling(20).min().iloc[-1])
+        donchian_upper_40 = float(hist_data['High'].rolling(40).max().iloc[-1]) if len(hist_data) >= 40 else donchian_upper_20
+        donchian_lower_40 = float(hist_data['Low'].rolling(40).min().iloc[-1]) if len(hist_data) >= 40 else donchian_lower_20
+        
+        # ATR (Average True Range, 14-period)
+        high_low = hist_data['High'] - hist_data['Low']
+        high_close = (hist_data['High'] - hist_data['Close'].shift()).abs()
+        low_close = (hist_data['Low'] - hist_data['Close'].shift()).abs()
+        true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        atr = float(true_range.rolling(14).mean().iloc[-1]) if not true_range.empty and not pd.isna(true_range.rolling(14).mean().iloc[-1]) else 0
+        
+        # 52-week high/low (252 trading days, or use available data)
+        if len(hist_data) >= 252:
+            week_52_high = float(hist_data['High'].rolling(252).max().iloc[-1])
+            week_52_low = float(hist_data['Low'].rolling(252).min().iloc[-1])
+        else:
+            week_52_high = float(hist_data['High'].max())
+            week_52_low = float(hist_data['Low'].min())
         week_high = float(hist_data['High'].tail(5).max())
         week_low = float(hist_data['Low'].tail(5).min())
         day_high = float(today_data['High'].max()) if not today_data.empty else recent_high
         day_low = float(today_data['Low'].min()) if not today_data.empty else recent_low
         avg_volume = float(hist_data['Volume'].tail(20).mean()) if hist_data['Volume'].tail(20).mean() > 0 else 1.0
-        current_volume = int(hist_data['Volume'].iloc[-1])
+        current_volume = int(today_data['Volume'].iloc[-1]) if not today_data.empty else int(hist_data['Volume'].iloc[-1])
         volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
         if current_price > ema_9 > ema_21:
             trend, trend_en = "强势看涨", "bullish"
@@ -123,10 +166,12 @@ def _yahoo_extended(symbol: str) -> Optional[Dict]:
             trend, trend_en = "弱势看涨", "bullish"
         else:
             trend, trend_en = "弱势看跌", "bearish"
-        last_update = hist_data.index[-1].strftime('%Y-%m-%d %H:%M') if hasattr(hist_data.index[-1], 'strftime') else str(hist_data.index[-1])
+        last_update_str = last_update.strftime('%m/%d %H:%M') if hasattr(last_update, 'strftime') else str(last_update)
         return {
             'symbol': symbol.upper(),
+            'session': session_note,
             'current_price': current_price,
+            'ema_5': ema_5,
             'ema_9': ema_9,
             'ema_21': ema_21,
             'ema_50': ema_50,
@@ -143,8 +188,19 @@ def _yahoo_extended(symbol: str) -> Optional[Dict]:
             'trend': trend,
             'trend_en': trend_en,
             'price_change_pct': price_change_pct,
-            'last_update': last_update,
-            'data_source': 'Yahoo Finance',
+            'last_update': last_update_str,
+            'data_source': 'Yahoo Finance (incl. pre/post)' if session_note == 'extended' else 'Yahoo Finance',
+            # New indicators
+            'bb_upper': bb_upper,
+            'bb_middle': bb_middle,
+            'bb_lower': bb_lower,
+            'donchian_upper_20': donchian_upper_20,
+            'donchian_lower_20': donchian_lower_20,
+            'donchian_upper_40': donchian_upper_40,
+            'donchian_lower_40': donchian_lower_40,
+            'atr': atr,
+            'week_52_high': week_52_high,
+            'week_52_low': week_52_low,
         }
     except Exception as e:
         print(f"Yahoo extended error for {symbol}: {e}")
@@ -166,6 +222,7 @@ def get_extended_stock_data(symbol: str, use_cache: bool = True) -> Optional[Dic
         print(f"[DATA] {symbol} ← Finnhub only | ${fq['current_price']:.2f}")
         out = {
             'symbol': symbol,
+            'session': 'regular',
             'current_price': fq['current_price'],
             'ema_9': fq['current_price'],
             'ema_21': fq['current_price'],
