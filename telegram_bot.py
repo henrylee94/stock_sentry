@@ -8,6 +8,7 @@ import yfinance as yf
 import json
 from pathlib import Path
 import os
+import httpx
 
 # Unset proxy env vars so OpenAI client does not get proxies= (avoids TypeError in some envs)
 for _k in list(os.environ.keys()):
@@ -189,14 +190,16 @@ if OPENAI_KEY:
                 if "proxy" in _k.lower():
                     os.environ.pop(_k, None)
             try:
-                client = OpenAI(api_key=api_key_clean)
+                http_client = httpx.Client(trust_env=False)  
+                client = OpenAI(api_key=api_key_clean, http_client=http_client)
             except TypeError as te:
                 if "proxies" in str(te):
                     os.environ.pop("HTTP_PROXY", None)
                     os.environ.pop("HTTPS_PROXY", None)
                     os.environ.pop("http_proxy", None)
                     os.environ.pop("https_proxy", None)
-                    client = OpenAI(api_key=api_key_clean)
+                    http_client = httpx.Client(trust_env=False)  # ✅ Ignore all env vars including proxies
+                    client = OpenAI(api_key=api_key_clean, http_client=http_client)
                 else:
                     raise
             print(f"✅ Client 创建成功")
